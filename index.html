@@ -1,0 +1,1189 @@
+<!--
+
+# Changelog
+
+## [0.2.1] - 2026-10-04
+
+DEV: Charles Kent Bernarte
+
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Python-Based Garden Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.26.1/full/pyodide.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+        
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: #1e261c;
+            color: #f3f4f6;
+        }
+        .code-font { font-family: 'JetBrains Mono', monospace; }
+        .glass-panel {
+            background: rgba(40, 54, 35, 0.45);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(120, 143, 114, 0.2);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+        }
+        .tree-node-locked {
+            opacity: 0.4;
+            filter: grayscale(1);
+            border-color: rgba(239, 68, 68, 0.4) !important;
+        }
+        .tree-node-unlocked {
+            opacity: 1;
+            filter: grayscale(0);
+            border-color: rgba(52, 211, 153, 0.8) !important;
+            box-shadow: 0 0 12px rgba(52, 211, 153, 0.3);
+        }
+    </style>
+</head>
+<body class="min-h-screen p-4 flex flex-col justify-between overflow-x-hidden">
+
+    <header class="w-full max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4 pb-2 border-b border-[#43533c]/40">
+        <div>
+            <div class="flex items-center gap-2">
+                <h1 class="text-2xl font-extrabold tracking-tight text-emerald-100">Python-Based Garden Simulator</h1>
+                <span id="version-badge" class="text-[10px] font-bold uppercase tracking-widest text-emerald-400/90 bg-emerald-950/50 border border-emerald-800/60 px-2 py-0.5 rounded-full"></span>
+            </div>
+            <p class="text-xs text-emerald-300/80 font-medium">SDG 2, 13, 15</p>
+        </div>
+        
+        <div class="flex items-center gap-3">
+            <div class="glass-panel px-4 py-2 rounded-xl flex flex-col items-end">
+                <span class="text-[10px] text-amber-400 uppercase tracking-widest font-bold">LEVEL</span>
+                <span class="text-lg font-extrabold text-amber-200" id="level-counter">1</span>
+            </div>
+            <div class="glass-panel px-4 py-2 rounded-xl flex flex-col items-end">
+                <span class="text-[10px] text-emerald-400 uppercase tracking-widest font-bold">DAY</span>
+                <span class="text-lg font-extrabold text-white" id="day-counter">1</span>
+            </div>
+            <div class="glass-panel px-4 py-2 rounded-xl flex flex-col items-end">
+                <span class="text-[10px] text-emerald-400 uppercase tracking-widest font-bold">SCORE</span>
+                <span class="text-lg font-extrabold text-emerald-300" id="stewardship-counter">0%</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="w-full max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-4 flex-grow">
+        
+        <!-- LEFT: RESOURCES -->
+        <section id="resources-section" class="lg:col-span-3 glass-panel rounded-2xl p-4 transition-all opacity-50 pointer-events-none">
+            <h2 class="text-base font-bold text-emerald-200 border-b border-[#43533c]/30 pb-2 mb-4 flex items-center justify-between">
+                <span class="flex items-center gap-2">
+                    <i data-lucide="database" class="w-4 h-4 text-emerald-400"></i> Resource Storage
+                </span>
+                <span id="resource-lock-badge" class="text-[10px] font-bold bg-amber-950/80 text-amber-400 border border-amber-600/60 px-2 py-0.5 rounded">LOCKED</span>
+            </h2>
+            
+            <div class="space-y-4">
+                <div>
+                    <div class="flex justify-between text-xs font-semibold">
+                        <span class="flex items-center gap-1.5 text-amber-300">⭐ Level XP</span>
+                        <span id="xp-text">0 / 50 XP</span>
+                    </div>
+                    <div class="w-full bg-[#1b2219] h-2.5 rounded-full overflow-hidden">
+                        <div id="xp-bar" class="bg-gradient-to-r from-amber-500 to-yellow-300 h-full rounded-full" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="flex justify-between text-xs font-semibold">
+                        <span class="flex items-center gap-1.5 text-blue-300">💧 Water Reserves</span>
+                        <span id="water-text">0 / 200 L</span>
+                    </div>
+                    <div class="w-full bg-[#1b2219] h-2.5 rounded-full overflow-hidden">
+                        <div id="water-bar" class="bg-gradient-to-r from-blue-500 to-cyan-400 h-full rounded-full" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="flex justify-between text-xs font-semibold">
+                        <span class="flex items-center gap-1.5 text-emerald-300">🌱 Seed Inventory</span>
+                        <span id="seeds-text">0 / 100</span>
+                    </div>
+                    <div class="w-full bg-[#1b2219] h-2.5 rounded-full overflow-hidden">
+                        <div id="seeds-bar" class="bg-gradient-to-r from-emerald-500 to-lime-400 h-full rounded-full" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="flex justify-between text-xs font-semibold">
+                        <span class="flex items-center gap-1.5 text-amber-300">☀️ Solar Energy</span>
+                        <span id="energy-text">0 / 120 Wh</span>
+                    </div>
+                    <div class="w-full bg-[#1b2219] h-2.5 rounded-full overflow-hidden">
+                        <div id="energy-bar" class="bg-gradient-to-r from-amber-500 to-yellow-300 h-full rounded-full" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="flex justify-between text-xs font-semibold">
+                        <span class="flex items-center gap-1.5 text-rose-300">💗 Community Hope</span>
+                        <span id="hope-text">0 / 100</span>
+                    </div>
+                    <div class="w-full bg-[#1b2219] h-2.5 rounded-full overflow-hidden">
+                        <div id="hope-bar" class="bg-gradient-to-r from-rose-500 to-pink-400 h-full rounded-full" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="flex justify-between text-xs font-semibold">
+                        <span class="flex items-center gap-1.5 text-yellow-200">🪙 Coins / Dues</span>
+                        <span id="coins-text" class="text-yellow-200">0 Coins</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- CENTER -->
+        <section class="lg:col-span-6 flex flex-col gap-4">
+            <div class="flex bg-[#192218] p-1.5 rounded-xl border border-emerald-800/40 w-fit">
+                <button onclick="switchTab('game')" id="tab-game" class="px-4 py-1.5 rounded-lg text-xs font-bold bg-[#283623] text-emerald-100">Interactive Sanctuary</button>
+                <button onclick="switchTab('code')" id="tab-code" class="px-4 py-1.5 rounded-lg text-xs font-bold text-emerald-400/80 hover:text-emerald-100">Student Code Editor</button>
+            </div>
+
+            <!-- Pre-play Notice Banner -->
+            <div id="prereq-banner" class="bg-amber-950/70 border border-amber-600/60 p-3 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+                <div class="flex items-center gap-2 text-amber-200">
+                    <i data-lucide="alert-triangle" class="w-5 h-5 text-amber-400 shrink-0"></i>
+                    <span id="banner-status-text"><strong>Prerequisite:</strong> Before playing, run the code topics in the Student Code Editor to unlock the plot.</span>
+                </div>
+                <button onclick="runAllTopicsSequentially()" class="bg-amber-600 hover:bg-amber-500 text-black font-bold px-3 py-1.5 rounded-lg text-xs transition-all whitespace-nowrap self-end sm:self-auto shrink-0 flex items-center gap-1 cursor-pointer">
+                    <i data-lucide="play-circle" class="w-4 h-4"></i> Run All Topics
+                </button>
+            </div>
+
+            <div id="view-game" class="glass-panel rounded-2xl p-6 min-h-[380px] flex flex-col gap-6">
+                <div>
+                    <div class="flex items-center justify-between mb-4">
+                        <div>
+                            <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                                Sanctuary Garden Grid <span id="grid-status-badge" class="text-[10px] bg-red-950/80 text-red-400 border border-red-700/60 px-2 py-0.5 rounded uppercase font-bold">Plots Locked</span>
+                            </h2>
+                            <p class="text-xs text-emerald-300" id="grid-sub-text">Run code topics to unlock soil plots and seed bag functionality.</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-emerald-300">Seed Bag:</span>
+                            <select id="crop-selector" disabled class="bg-[#1b2219] border border-emerald-700 text-emerald-100 text-sm rounded-xl px-3 py-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                                <option value="">🔒 Seed Bag Locked</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="garden-grid" class="grid grid-cols-5 gap-3"></div>
+                </div>
+
+                <!-- Hierarchical Model Visualization -->
+                <div class="border-t border-[#43533c]/40 pt-4 mt-2">
+                    <h3 class="text-sm font-bold text-emerald-200 mb-1 flex items-center justify-between">
+                        <span class="flex items-center gap-2">
+                            <i data-lucide="git-fork" class="w-4 h-4 text-emerald-400"></i> Dynamic Hierarchical Species Tree
+                        </span>
+                        <span id="tree-status-tag" class="text-[10px] text-amber-300 bg-amber-950/80 border border-amber-600/60 px-2 py-0.5 rounded font-mono">Level 1 Active</span>
+                    </h3>
+                    <p class="text-xs text-emerald-300/80 mb-3">Tree nodes dynamically unlock as you gain XP, level up, and expand Community Hope.</p>
+                    <div class="bg-[#111811] p-4 rounded-xl border border-emerald-900/60 overflow-x-auto text-xs">
+                        <div class="flex flex-col items-center gap-3 min-w-[480px]">
+                            <!-- Root Node -->
+                            <div class="bg-emerald-900/80 border border-emerald-400 text-emerald-100 px-4 py-1.5 rounded-lg font-bold shadow text-center flex items-center gap-1.5">
+                                🪴 Root: Sanctuary Ecosystem (Level 1+)
+                            </div>
+                            <div class="w-0.5 h-3 bg-emerald-600/60"></div>
+                            
+                            <!-- Level 1 Nodes -->
+                            <div class="flex justify-center gap-8 w-full relative">
+                                <!-- Branch 1: Native Grasses -->
+                                <div class="flex flex-col items-center">
+                                    <div id="tree-node-grasses" class="tree-node-unlocked bg-emerald-950 border text-emerald-200 px-3 py-1 rounded-md font-semibold text-center transition-all">
+                                        🌱 Tier 1: Native Grasses (Lvl 1)
+                                    </div>
+                                    <div class="w-0.5 h-3 bg-emerald-600/60 mt-2"></div>
+                                    <div class="flex gap-2 mt-1">
+                                        <span id="tree-item-clover" class="tree-node-unlocked bg-[#1e2a1c] border text-emerald-300 px-2 py-0.5 rounded text-[11px]">🍀 Clover</span>
+                                        <span id="tree-item-shrub" class="tree-node-locked bg-[#1e2a1c] border text-emerald-300 px-2 py-0.5 rounded text-[11px]">🌿 Shrub (Lvl 3)</span>
+                                    </div>
+                                </div>
+
+                                <!-- Branch 2: Flowering Plants -->
+                                <div class="flex flex-col items-center">
+                                    <div id="tree-node-flowers" class="tree-node-unlocked bg-emerald-950 border text-emerald-200 px-3 py-1 rounded-md font-semibold text-center transition-all">
+                                        🌸 Tier 2: Flowering Species (Lvl 1)
+                                    </div>
+                                    <div class="w-0.5 h-3 bg-emerald-600/60 mt-2"></div>
+                                    <div class="flex gap-2 mt-1">
+                                        <span id="tree-item-flower" class="tree-node-unlocked bg-[#1e2a1c] border text-emerald-300 px-2 py-0.5 rounded text-[11px]">🌸 Native Flower</span>
+                                        <span id="tree-item-rose" class="tree-node-locked bg-[#1e2a1c] border text-emerald-300 px-2 py-0.5 rounded text-[11px]">🌹 Rose (Lvl 2)</span>
+                                        <span id="tree-item-wildflower" class="tree-node-locked bg-[#1e2a1c] border text-emerald-300 px-2 py-0.5 rounded text-[11px]">🌸 Wildflower (Lvl 3)</span>
+                                    </div>
+                                    <div class="w-0.5 h-3 bg-emerald-600/60 mt-2"></div>
+                                    <div id="tree-node-apex" class="tree-node-locked bg-emerald-950 border text-amber-200 px-3 py-1 rounded-md font-semibold text-center transition-all mt-1">
+                                        🪷 Apex Ecosystem Tier (Lvl 4+)
+                                    </div>
+                                    <div class="flex gap-2 mt-2">
+                                        <span id="tree-item-sunflower" class="tree-node-locked bg-[#1e2a1c] border text-amber-300 px-2 py-0.5 rounded text-[11px]">🌻 Sunflower (Lvl 4)</span>
+                                        <span id="tree-item-lotus" class="tree-node-locked bg-[#1e2a1c] border text-amber-300 px-2 py-0.5 rounded text-[11px]">🪷 Lotus (Lvl 5)</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="view-code" class="glass-panel rounded-2xl p-6 flex flex-col flex-grow hidden">
+                <h2 class="font-bold mb-3 flex items-center gap-2">
+                    <i data-lucide="code" class="w-5 h-5 text-emerald-400"></i> Student Code Editor (Lab)
+                </h2>
+                <select id="topic-selector" onchange="loadTopic()" class="w-full bg-[#1b2219] border border-emerald-700 rounded-xl p-3 mb-4 text-sm"></select>
+                <textarea id="code-editor" readonly class="flex-1 bg-[#0a0f0a] border border-emerald-800 rounded-xl p-4 code-font text-sm font-medium leading-relaxed" spellcheck="false"></textarea>
+                
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+                    <button onclick="runPythonCode()" class="bg-emerald-600 hover:bg-emerald-500 py-3 rounded-xl font-bold text-white flex items-center justify-center gap-2 cursor-pointer">
+                        <i data-lucide="play" class="w-4 h-4"></i> Run Selected Topic Code
+                    </button>
+                    <button onclick="runAllTopicsSequentially()" class="bg-amber-600 hover:bg-amber-500 py-3 rounded-xl font-bold text-black flex items-center justify-center gap-2 cursor-pointer">
+                        <i data-lucide="fast-forward" class="w-4 h-4"></i> Run All Topics Sequentially
+                    </button>
+                </div>
+                
+                <div id="output-console" class="mt-4 bg-black/70 border border-emerald-900 rounded-xl p-4 text-xs max-h-48 overflow-auto font-mono whitespace-pre-wrap"></div>
+            </div>
+        </section>
+
+        <!-- RIGHT PANEL -->
+        <section class="lg:col-span-3 flex flex-col gap-4">
+            <div id="climate-queue-panel" class="glass-panel rounded-2xl p-4 transition-all opacity-50 pointer-events-none">
+                <h3 class="font-bold text-emerald-400 mb-3 flex items-center gap-2">
+                    <i data-lucide="cloud-lightning" class="w-4 h-4"></i> Climate Queue (FIFO)
+                </h3>
+                <div id="climate-queue" class="space-y-3 text-sm">
+                    <div class="p-3 bg-red-950/40 border border-red-900/60 rounded-xl text-xs text-red-300">
+                        🔒 Functionality locked until code execution
+                    </div>
+                </div>
+                <button id="advance-day-btn" disabled onclick="triggerAdvanceDay()" class="mt-4 w-full bg-transparent text-gray-500 border border-gray-700 py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-all disabled:cursor-not-allowed">
+                    <i data-lucide="play" class="w-4 h-4"></i> Advance Day (Locked)
+                </button>
+            </div>
+
+            <div id="stack-panel" class="glass-panel rounded-2xl p-4 flex-1 flex flex-col transition-all opacity-50 pointer-events-none">
+                <h3 class="font-bold text-emerald-400 mb-3 flex items-center gap-2">
+                    <i data-lucide="history" class="w-4 h-4"></i> Action History (Stack)
+                </h3>
+                <div id="action-stack" class="flex-1 space-y-2 text-sm overflow-auto">
+                    <div class="bg-red-950/40 border-l-2 border-red-500 px-3 py-2 rounded text-xs text-red-300">
+                        🔒 Execution locked
+                    </div>
+                </div>
+                <button id="undo-btn" disabled onclick="triggerUndo()" class="mt-4 w-full bg-[#1e261c] text-gray-500 py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2 border border-gray-800 disabled:cursor-not-allowed">
+                    <i data-lucide="undo-2" class="w-4 h-4"></i> Undo (Locked)
+                </button>
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        // =====================================================================
+        // SEMANTIC VERSIONING (SemVer 2.0.0)
+        // =====================================================================
+        const APP_VERSION = "0.2.1";
+
+        let pyodideInstance = null;
+        let isGameUnlocked = false;
+        let gardenGridState = new Array(25).fill(null);
+        let displayActionHistory = [];
+
+        let currentDay = 1;
+        let currentLevel = 1;
+        let currentXP = 0;
+        const xpRequirements = { 1: 50, 2: 120, 3: 220, 4: 350, 5: 500 };
+
+        let resourcesState = {"water": 0, "seeds": 0, "solar": 0, "hope": 0, "coins": 0};
+
+        const plantMasterRegistry = {
+            "Native Flower": { emoji: "🌸", minLevel: 1, cost: 5, xp: 8, coins: 20, hope: 8 },
+            "Clover": { emoji: "🍀", minLevel: 1, cost: 6, xp: 10, coins: 22, hope: 8 },
+            "Rose": { emoji: "🌹", minLevel: 2, cost: 10, xp: 15, coins: 30, hope: 10 },
+            "Wildflower": { emoji: "🌸", minLevel: 3, cost: 8, xp: 18, coins: 32, hope: 9 },
+            "Drought-Tolerant Shrub": { emoji: "🌿", minLevel: 3, cost: 12, xp: 20, coins: 35, hope: 12 },
+            "Sunflower": { emoji: "🌻", minLevel: 4, cost: 18, xp: 25, coins: 45, hope: 14 },
+            "Lotus": { emoji: "🪷", minLevel: 5, cost: 15, xp: 35, coins: 60, hope: 20 }
+        };
+
+        const seedIconsMap = {
+            "Lotus": "🪷",
+            "Rose": "🌹",
+            "Sunflower": "🌻",
+            "Clover": "🍀",
+            "Wildflower": "🌸",
+            "Native Flower": "🌸",
+            "Drought-Tolerant Shrub": "🌿"
+        };
+
+        const climateEventsList = [
+            {kind: "Typhoon", icon: "🌀"},
+            {kind: "Tsunami", icon: "🌊"},
+            {kind: "Flood", icon: "🌧️"},
+            {kind: "Drought", icon: "🌵"},
+            {kind: "Heatwave", icon: "☀️"}
+        ];
+
+        const topicTemplates = {
+            1: {
+                title: "Topic 1: Python OOP + Big O + Stacks",
+                code: `# Topic 1: Python OOP + Big O + Stacks
+# ==== WRITE YOUR CODE HERE ====
+
+class Plant:
+    """Base class for anything grown in the sanctuary."""
+    def __init__(self, name, water_cost, hope_value):
+        self.name = name
+        self.water_cost = water_cost
+        self.hope_value = hope_value
+        self.stage = "seed"
+        self.days_growing = 0
+
+    def grow_day(self):
+        self.days_growing += 1
+        if self.days_growing >= 5:
+            self.stage = "bloom"
+        elif self.days_growing >= 2:
+            self.stage = "sprout"
+
+    def __repr__(self):
+        return f"{self.name} ({self.stage}, Day {self.days_growing})"
+
+class NativeFlower(Plant):
+    def __init__(self, name="Native Flower"):
+        super().__init__(name, water_cost=5, hope_value=8)
+
+class ActionHistory:
+    """Action History (Stack) panel — LIFO undo support."""
+    def __init__(self):
+        self._stack = []
+
+    def push(self, action: dict):
+        self._stack.append(action)
+        pushAction(action["label"])
+
+    def pop(self):
+        return self._stack.pop() if self._stack else None
+
+history = ActionHistory()
+flower = NativeFlower()
+
+for d in range(5):
+    flower.grow_day()
+    history.push({"label": f"Day {d+1}: {flower.name} -> {flower.stage}", "plant": flower})
+
+print(f"{flower} fully matured on Day 5!")
+`
+            },
+            2: {
+                title: "Topic 2: Queues & Deques (FIFO Elements)",
+                code: `# Topic 2: Queues & Deques (FIFO Elements)
+# ==== WRITE YOUR CODE HERE ====
+
+from collections import deque
+
+class ClimateEvent:
+    def __init__(self, kind, water_delta=0, solar_delta=0, hope_delta=0):
+        self.kind = kind
+        self.water_delta = water_delta
+        self.solar_delta = solar_delta
+        self.hope_delta = hope_delta
+
+class ClimateQueue:
+    def __init__(self):
+        self._queue = deque()
+
+    def schedule(self, event: ClimateEvent):
+        self._queue.append(event)
+        updateClimateQueue([e.kind for e in self._queue])
+
+    def process_next(self, resources: dict):
+        if not self._queue:
+            return None
+        event = self._queue.popleft()
+        resources["water"] = max(0, min(200, resources["water"] + event.water_delta))
+        resources["solar"] = max(0, min(120, resources["solar"] + event.solar_delta))
+        resources["hope"] = max(0, min(100, resources["hope"] + event.hope_delta))
+        updateClimateQueue([e.kind for e in self._queue])
+        updateResources(resources["water"], resources.get("seeds", 0),
+                        resources["solar"], resources["hope"], resources.get("coins", 0))
+        return event
+
+resources = {"water": 120, "seeds": 40, "solar": 60, "hope": 10, "coins": 999}
+climate_queue = ClimateQueue()
+
+climate_queue.schedule(ClimateEvent("Drought", water_delta=-20))
+climate_queue.schedule(ClimateEvent("Rainfall", water_delta=30, hope_delta=5))
+
+resolved = climate_queue.process_next(resources)
+print(f"Resolved first: {resolved.kind} (FIFO queue order)")
+`
+            },
+            3: {
+                title: "Topic 3: Static/Dynamic Arrays, 2D Lists, & Memory Structures",
+                code: `# Topic 3: Static/Dynamic Arrays, 2D Lists, & Memory Structures
+# ==== WRITE YOUR CODE HERE ====
+
+GRID_SIZE = 5
+
+def create_garden_grid(size=GRID_SIZE):
+    return [[None for _ in range(size)] for _ in range(size)]
+
+def plant_at(grid, row, col, plant):
+    if 0 <= row < len(grid) and 0 <= col < len(grid[0]):
+        if grid[row][col] is None:
+            grid[row][col] = plant
+            pos = row * len(grid[0]) + col
+            addPlantToGrid(pos, plant)
+            return True
+    return False
+
+addPlantsToDropdown([("Native Flower", "🌸", 5), ("Drought-Tolerant Shrub", "🌿", 5)])
+garden_grid = create_garden_grid()
+plant_at(garden_grid, 0, 0, "Native Flower")
+plant_at(garden_grid, 1, 2, "Drought-Tolerant Shrub")
+
+print("Garden array updated!")
+`
+            },
+            4: {
+                title: "Topic 4: Hierarchical Trees & Traversals",
+                code: `# Topic 4: Hierarchical Trees & Traversals
+# ==== WRITE YOUR CODE HERE ====
+
+class SpeciesNode:
+    def __init__(self, species_name, hope_required):
+        self.species_name = species_name
+        self.hope_required = hope_required
+        self.children = []
+
+    def add_child(self, node):
+        self.children.append(node)
+        return node
+
+def build_species_tree():
+    root = SpeciesNode("Native Grass", hope_required=0)
+    wildflower = root.add_child(SpeciesNode("Wildflower Patch", hope_required=15))
+    shrub = root.add_child(SpeciesNode("Drought-Tolerant Shrub", hope_required=15))
+    return root
+
+root = build_species_tree()
+print("Species hierarchy tree compiled!")
+`
+            },
+            5: {
+                title: "Topic 5: Binary Search Trees (BST) & Node Mutation",
+                code: `# Topic 5: Binary Search Trees (BST) & Node Mutation
+# ==== WRITE YOUR CODE HERE ====
+
+class BSTNode:
+    def __init__(self, val):
+        self.val = val
+        self.left = None
+        self.right = None
+
+class GardenBST:
+    def __init__(self):
+        self.root = None
+
+    def insert(self, val):
+        if not self.root:
+            self.root = BSTNode(val)
+        else:
+            self._insert(self.root, val)
+
+    def _insert(self, node, val):
+        if val < node.val:
+            if not node.left:
+                node.left = BSTNode(val)
+            else:
+                self._insert(node.left, val)
+        else:
+            if not node.right:
+                node.right = BSTNode(val)
+            else:
+                self._insert(node.right, val)
+
+bst = GardenBST()
+for x in [10, 5, 15, 3, 7]:
+    bst.insert(x)
+
+print("Topic 5 loaded: Binary Search Tree constructed successfully.")
+`
+            },
+            6: {
+                title: "Topic 6: Hash Tables, Collisions, & Rehashing",
+                code: `# Topic 6: Hash Tables, Collisions, & Rehashing
+# ==== WRITE YOUR CODE HERE ====
+
+class SimpleHashTable:
+    def __init__(self, size=8):
+        self.size = size
+        self.table = [[] for _ in range(size)]
+
+    def _hash(self, key):
+        return hash(key) % self.size
+
+    def insert(self, key, value):
+        idx = self._hash(key)
+        for item in self.table[idx]:
+            if item[0] == key:
+                item[1] = value
+                return
+        self.table[idx].append([key, value])
+
+ht = SimpleHashTable()
+ht.insert("Rose", 10)
+ht.insert("Clover", 6)
+print("Topic 6 loaded: Hash Table initialized.")
+`
+            },
+            7: {
+                title: "Topic 7: Graph Foundations, Adjacency Matrices/Lists, & DFS/BFS",
+                code: `# Topic 7: Graph Foundations, Adjacency Matrices/Lists, & DFS/BFS
+# ==== WRITE YOUR CODE HERE ====
+
+class GardenGraph:
+    def __init__(self):
+        self.adj_list = {}
+
+    def add_edge(self, u, v):
+        if u not in self.adj_list:
+            self.adj_list[u] = []
+        if v not in self.adj_list:
+            self.adj_list[v] = []
+        self.adj_list[u].append(v)
+        self.adj_list[v].append(u)
+
+g = GardenGraph()
+g.add_edge("Plot0", "Plot1")
+g.add_edge("Plot1", "Plot2")
+print("Topic 7 loaded: Garden plot connectivity graph generated.")
+`
+            },
+            8: {
+                title: "Topic 8: Sorting Algorithms (Bubble, Insertion, Selection, Quick, & Merge Sort)",
+                code: `# Topic 8: Sorting Algorithms
+# ==== WRITE YOUR CODE HERE ====
+
+def quicksort(arr):
+    if len(arr) <= 1:
+        return arr
+    pivot = arr[len(arr) // 2]
+    left = [x for x in arr if x < pivot]
+    middle = [x for x in arr if x == pivot]
+    right = [x for x in arr if x > pivot]
+    return quicksort(left) + middle + quicksort(right)
+
+crops_by_value = [15, 10, 18, 6, 8]
+sorted_crops = quicksort(crops_by_value)
+print(f"Topic 8 loaded: Crops sorted by value -> {sorted_crops}")
+`
+            },
+            9: {
+                title: "Topic 9: Searching Algorithms (Linear Search vs. Binary Search)",
+                code: `# Topic 9: Searching Algorithms
+# ==== WRITE YOUR CODE HERE ====
+
+def binary_search(arr, target):
+    low = 0
+    high = len(arr) - 1
+    while low <= high:
+        mid = (low + high) // 2
+        if arr[mid] == target:
+            return mid
+        elif arr[mid] < target:
+            low = mid + 1
+        else:
+            high = mid - 1
+    return -1
+
+catalog = [6, 8, 10, 15, 18]
+pos = binary_search(catalog, 10)
+print(f"Topic 9 loaded: Binary search target found at index {pos}")
+`
+            },
+            10: {
+                title: "Topic 10: Advanced Strategic Paradigms (Dijkstra's Algorithm & Greedy Patterns)",
+                code: `# Topic 10: Advanced Strategic Paradigms
+# ==== WRITE YOUR CODE HERE ====
+
+import heapq
+
+def dijkstra(graph, start):
+    distances = {node: float('inf') for node in graph}
+    distances[start] = 0
+    pq = [(0, start)]
+    while pq:
+        curr_dist, curr_node = heapq.heappop(pq)
+        if curr_dist > distances[curr_node]:
+            continue
+        for neighbor, weight in graph[curr_node].items():
+            dist = curr_dist + weight
+            if dist < distances[neighbor]:
+                distances[neighbor] = dist
+                heapq.heappush(pq, (dist, neighbor))
+    return distances
+
+irrigation_network = {
+    'Pump': {'PlotA': 2, 'PlotB': 5},
+    'PlotA': {'Pump': 2, 'PlotC': 1},
+    'PlotB': {'Pump': 5, 'PlotC': 2},
+    'PlotC': {'PlotA': 1, 'PlotB': 2}
+}
+
+paths = dijkstra(irrigation_network, 'Pump')
+print(f"Topic 10 loaded: Optimal water piping distances -> {paths}")
+`
+            },
+            11: {
+                title: "Topic 11: Dynamic Programming (DP), Memoization, & Divide-and-Conquer",
+                code: `# Topic 11: Dynamic Programming
+# ==== WRITE YOUR CODE HERE ====
+
+def max_crop_yield_dp(weights, values, capacity):
+    n = len(values)
+    dp = [[0 for _ in range(capacity + 1)] for _ in range(n + 1)]
+    for i in range(1, n + 1):
+        for w in range(1, capacity + 1):
+            if weights[i-1] <= w:
+                dp[i][w] = max(values[i-1] + dp[i-1][w-weights[i-1]], dp[i-1][w])
+            else:
+                dp[i][w] = dp[i-1][w]
+    return dp[n][capacity]
+
+weights = [2, 3, 4, 5]
+values = [3, 4, 5, 8]
+capacity = 7
+best_yield = max_crop_yield_dp(weights, values, capacity)
+print(f"Topic 11 loaded: Max knapsack crop yield calculated -> {best_yield}")
+`
+            },
+            12: {
+                title: "Topic 12: Resource Storage and Seed Bank",
+                code: `# Topic 12: Resource Storage and Seed Bank
+# ==== WRITE YOUR CODE HERE ====
+
+class SeedBank:
+    def __init__(self):
+        self.bank = {}
+
+    def store(self, species, count):
+        self.bank[species] = self.bank.get(species, 0) + count
+
+sb = SeedBank()
+sb.store("Lotus", 50)
+print(f"Topic 12 loaded: Seed Bank contains {sb.bank}")
+`
+            }
+        };
+
+        async function initPyodide() {
+            if (pyodideInstance) return;
+            const consoleEl = document.getElementById("output-console");
+            if (consoleEl) {
+                consoleEl.innerHTML = `<span class="text-amber-400">Loading Python Runtime...</span><br>`;
+            }
+            try {
+                pyodideInstance = await loadPyodide();
+                pyodideInstance.globals.set("addPlantToGrid", addPlantToGrid);
+                pyodideInstance.globals.set("updateResources", updateResources);
+                pyodideInstance.globals.set("addPlantsToDropdown", addPlantsToDropdown);
+                pyodideInstance.globals.set("pushAction", pushAction);
+                pyodideInstance.globals.set("updateClimateQueue", updateClimateQueue);
+                pyodideInstance.globals.set("removePlantFromGrid", removePlantFromGrid);
+                pyodideInstance.globals.set("updateDay", updateDay);
+
+                await pyodideInstance.runPythonAsync(`
+import sys
+from js import document
+
+class Console:
+    def write(self, text):
+        if text and text.strip():
+            el = document.getElementById("output-console")
+            if el:
+                el.innerHTML += text.replace("\\n", "<br>")
+    def flush(self): pass
+
+sys.stdout = Console()
+`);
+                if (consoleEl) {
+                    consoleEl.innerHTML = `<span class="text-emerald-400">Python engine loaded! Click "Run Topic Code" or "Run All Topics" to unlock the garden.</span><br>`;
+                }
+            } catch (err) {
+                if (consoleEl) {
+                    consoleEl.innerHTML = `<span class="text-red-400">Failed to load Python: ${err.message}</span>`;
+                }
+            }
+        }
+
+        function unlockGameFunctionality() {
+            if (isGameUnlocked) return;
+            isGameUnlocked = true;
+
+            resourcesState = {"water": 200, "seeds": 90, "solar": 110, "hope": 80, "coins": 999};
+
+            document.getElementById("resources-section").classList.remove("opacity-50", "pointer-events-none");
+            document.getElementById("climate-queue-panel").classList.remove("opacity-50", "pointer-events-none");
+            document.getElementById("stack-panel").classList.remove("opacity-50", "pointer-events-none");
+
+            document.getElementById("resource-lock-badge").className = "text-[10px] font-bold bg-emerald-950/80 text-emerald-400 border border-emerald-600/60 px-2 py-0.5 rounded";
+            document.getElementById("resource-lock-badge").innerText = "ACTIVE";
+
+            document.getElementById("grid-status-badge").className = "text-[10px] bg-emerald-950/80 text-emerald-400 border border-emerald-700/60 px-2 py-0.5 rounded uppercase font-bold";
+            document.getElementById("grid-status-badge").innerText = "Plots Unlocked";
+
+            document.getElementById("grid-sub-text").innerText = "Click tile to plant/water. Advance days to grow crops over time!";
+            document.getElementById("banner-status-text").innerHTML = "<strong>Status:</strong> Code executed successfully! All plot features unlocked.";
+
+            const cropSelector = document.getElementById("crop-selector");
+            cropSelector.disabled = false;
+            cropSelector.classList.remove("disabled:opacity-50", "disabled:cursor-not-allowed");
+            
+            refreshCropSelectorOptions();
+
+            const advBtn = document.getElementById("advance-day-btn");
+            advBtn.disabled = false;
+            advBtn.className = "mt-4 w-full bg-transparent hover:bg-emerald-900/30 text-emerald-300 border border-emerald-700 py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-all cursor-pointer";
+            advBtn.innerHTML = `<i data-lucide="play" class="w-4 h-4"></i> Advance Day`;
+
+            const undoBtn = document.getElementById("undo-btn");
+            undoBtn.disabled = false;
+            undoBtn.className = "mt-4 w-full bg-[#2a3825] hover:bg-[#34462e] text-emerald-200 py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2 border border-emerald-800 cursor-pointer";
+            undoBtn.innerHTML = `<i data-lucide="undo-2" class="w-4 h-4"></i> Undo (Stack Pop)`;
+
+            updateResources(resourcesState);
+            updateLevelProgress(0);
+            renderGarden();
+            updateHierarchicalTreeUI();
+            lucide.createIcons();
+            pushAction("Code topic executed: Garden plot and game engine UNLOCKED!");
+        }
+
+        function refreshCropSelectorOptions() {
+            const select = document.getElementById("crop-selector");
+            select.innerHTML = "";
+            Object.keys(plantMasterRegistry).forEach(name => {
+                const crop = plantMasterRegistry[name];
+                const option = document.createElement("option");
+                option.value = name;
+                if (currentLevel >= crop.minLevel) {
+                    option.textContent = `${crop.emoji} ${name} (${crop.cost}c)`;
+                } else {
+                    option.textContent = `🔒 ${name} (Requires Lvl ${crop.minLevel})`;
+                    option.disabled = true;
+                }
+                select.appendChild(option);
+            });
+        }
+
+        function addXP(amount) {
+            currentXP += amount;
+            const targetXP = xpRequirements[currentLevel] || (currentLevel * 100);
+
+            if (currentXP >= targetXP && currentLevel < 5) {
+                currentXP -= targetXP;
+                currentLevel++;
+                document.getElementById("level-counter").innerText = currentLevel;
+                showToast(`🎉 LEVEL UP! You reached Level ${currentLevel}! New plants unlocked.`);
+                pushAction(`⭐ Level Up! Reached Level ${currentLevel}`);
+                refreshCropSelectorOptions();
+                updateHierarchicalTreeUI();
+            }
+
+            updateLevelProgress(0);
+        }
+
+        function updateLevelProgress(delta) {
+            const targetXP = xpRequirements[currentLevel] || (currentLevel * 100);
+            document.getElementById("xp-text").innerText = `${currentXP} / ${targetXP} XP`;
+            document.getElementById("xp-bar").style.width = `${Math.min(100, (currentXP / targetXP) * 100)}%`;
+        }
+
+        function updateHierarchicalTreeUI() {
+            document.getElementById("tree-status-tag").innerText = `Level ${currentLevel} Active`;
+
+            const setNodeState = (elementId, isUnlocked, labelText) => {
+                const el = document.getElementById(elementId);
+                if (!el) return;
+                if (isUnlocked) {
+                    el.className = "tree-node-unlocked bg-[#1e2a1c] border text-emerald-300 px-2 py-0.5 rounded text-[11px] transition-all";
+                    el.innerText = labelText.replace(/ \(Lvl \d+\)/, "");
+                } else {
+                    el.className = "tree-node-locked bg-[#1e2a1c] border text-emerald-300 px-2 py-0.5 rounded text-[11px] transition-all";
+                    el.innerText = labelText;
+                }
+            };
+
+            setNodeState("tree-item-rose", currentLevel >= 2, "🌹 Rose (Lvl 2)");
+            setNodeState("tree-item-shrub", currentLevel >= 3, "🌿 Shrub (Lvl 3)");
+            setNodeState("tree-item-wildflower", currentLevel >= 3, "🌸 Wildflower (Lvl 3)");
+            setNodeState("tree-item-sunflower", currentLevel >= 4, "🌻 Sunflower (Lvl 4)");
+            setNodeState("tree-item-lotus", currentLevel >= 5, "🪷 Lotus (Lvl 5)");
+
+            const apexNode = document.getElementById("tree-node-apex");
+            if (apexNode) {
+                if (currentLevel >= 4) {
+                    apexNode.className = "tree-node-unlocked bg-emerald-950 border text-amber-200 px-3 py-1 rounded-md font-semibold text-center transition-all mt-1";
+                } else {
+                    apexNode.className = "tree-node-locked bg-emerald-950 border text-amber-200 px-3 py-1 rounded-md font-semibold text-center transition-all mt-1";
+                }
+            }
+        }
+
+        async function runPythonCode() {
+            const consoleEl = document.getElementById("output-console");
+            consoleEl.innerHTML = `<span class="text-amber-400">Running selected topic...</span><br>`;
+            try {
+                await initPyodide();
+                const code = document.getElementById("code-editor").value.trim();
+                await pyodideInstance.runPythonAsync(code);
+                unlockGameFunctionality();
+            } catch (err) {
+                consoleEl.innerHTML += `<span class="text-red-400">Error: ${err.message}</span>`;
+            }
+        }
+
+        async function runAllTopicsSequentially() {
+            switchTab('code');
+            const consoleEl = document.getElementById("output-console");
+            consoleEl.innerHTML = `<span class="text-amber-400">Initializing execution sequence...</span><br>`;
+            
+            try {
+                await initPyodide();
+                const keys = Object.keys(topicTemplates);
+                
+                for (let i = 0; i < keys.length; i++) {
+                    const key = keys[i];
+                    const topic = topicTemplates[key];
+                    document.getElementById("topic-selector").value = key;
+                    document.getElementById("code-editor").value = topic.code;
+                    
+                    consoleEl.innerHTML += `<span class="text-emerald-400 font-bold">▶ Running Topic ${key}: ${topic.title}</span><br>`;
+                    await pyodideInstance.runPythonAsync(topic.code);
+                    consoleEl.innerHTML += `<span class="text-gray-400">----------------------------------------</span><br>`;
+                }
+                
+                consoleEl.innerHTML += `<span class="text-emerald-300 font-bold">✓ All 12 topics executed successfully! You can now play the game.</span><br>`;
+                unlockGameFunctionality();
+                showToast("All code editor topics completed! Garden plot unlocked.");
+            } catch (err) {
+                consoleEl.innerHTML += `<span class="text-red-400">Execution halted on error: ${err.message}</span>`;
+            }
+        }
+
+        function updateClimateQueue(events) {
+            const container = document.getElementById("climate-queue");
+            container.innerHTML = "";
+            if (!events || !events.length) return;
+            events.forEach(event => {
+                const div = document.createElement("div");
+                div.className = "p-3 bg-amber-950/40 border border-amber-900 rounded-xl text-xs";
+                const kind = typeof event === "string" ? event : (event.kind || "Climate Event");
+                const icon = typeof event === "string" ? "🌧️" : (event.icon || "🌧️");
+                div.innerHTML = `
+                    <div class="font-bold text-amber-400">${icon} ${kind}</div>
+                    <div class="text-emerald-300/80">Waiting in FIFO queue</div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function addPlantToGrid(pos, name) {
+            gardenGridState[pos] = name;
+            renderGarden();
+        }
+
+        function removePlantFromGrid(pos) {
+            gardenGridState[pos] = null;
+            renderGarden();
+        }
+
+        function updateDay(day) {
+            currentDay = day;
+            document.getElementById("day-counter").innerText = day;
+        }
+
+        function onTileClick(pos) {
+            if (!isGameUnlocked) {
+                showToast("🔒 Plots are locked! Click 'Run All Topics' in Student Code Editor first.");
+                return;
+            }
+
+            const row = Math.floor(pos / 5), col = pos % 5;
+            const selectedCrop = document.getElementById("crop-selector").value || "Native Flower";
+            const cropMeta = plantMasterRegistry[selectedCrop] || plantMasterRegistry["Native Flower"];
+            const currentItem = gardenGridState[pos];
+
+            if (!currentItem) {
+                if (cropMeta.minLevel > currentLevel) {
+                    showToast(`🔒 ${selectedCrop} requires Level ${cropMeta.minLevel}!`);
+                    return;
+                }
+                if (resourcesState.coins < cropMeta.cost) {
+                    pushAction(`Not enough coins to plant ${selectedCrop} (${cropMeta.cost}c)`);
+                    return;
+                }
+                if (resourcesState.seeds < 1) {
+                    pushAction(`Not enough seeds to plant ${selectedCrop}`);
+                    return;
+                }
+                
+                gardenGridState[pos] = `${selectedCrop}|${cropMeta.emoji}|seed|0|0`;
+                resourcesState.coins -= cropMeta.cost;
+                resourcesState.seeds -= 1;
+                pushAction(`Planted ${selectedCrop} at [${row}][${col}]. Wait days to grow!`);
+            } else {
+                const parts = currentItem.split("|");
+                const cropName = parts[0];
+                const icon = parts[1];
+                const stage = parts[2];
+                const days = parseInt(parts[3] || "0");
+                const dry = parts[4] === "1";
+                const existingMeta = plantMasterRegistry[cropName] || plantMasterRegistry["Native Flower"];
+
+                if (stage === "bloom") {
+                    gardenGridState[pos] = null;
+                    resourcesState.coins += existingMeta.coins;
+                    resourcesState.hope = Math.min(100, resourcesState.hope + existingMeta.hope);
+                    
+                    addXP(existingMeta.xp);
+                    pushAction(`Harvested ${cropName}! (+${existingMeta.coins} Coins, +${existingMeta.xp} XP, +${existingMeta.hope} Hope)`);
+                } else if (dry) {
+                    if (resourcesState.water < 10) {
+                        pushAction(`Not enough water reserves to water ${cropName}`);
+                        return;
+                    }
+                    resourcesState.water -= 10;
+                    gardenGridState[pos] = `${cropName}|${icon}|${stage}|${days}|0`;
+                    pushAction(`Watered dry soil for ${cropName}`);
+                } else {
+                    pushAction(`${cropName} is growing (${stage}, Day ${days}). Click Advance Day to pass time!`);
+                }
+            }
+
+            updateResources(resourcesState);
+            renderGarden();
+        }
+
+        function renderGarden() {
+            const grid = document.getElementById("garden-grid");
+            grid.innerHTML = "";
+            for (let i = 0; i < 25; i++) {
+                const cell = document.createElement("div");
+                const item = gardenGridState[i];
+
+                if (!isGameUnlocked) {
+                    cell.className = "aspect-square bg-[#172016] rounded-xl flex flex-col items-center justify-center p-1 border border-red-900/40 text-center overflow-hidden cursor-not-allowed opacity-50 hover:opacity-75 transition-all select-none";
+                    cell.innerHTML = `<span class="text-xl">🔒</span><span class="text-[9px] font-bold text-red-400 mt-1">LOCKED</span>`;
+                } else if (item) {
+                    cell.className = "aspect-square bg-[#2a3825] rounded-xl flex flex-col items-center justify-center p-1 border border-emerald-800 text-center overflow-hidden cursor-pointer opacity-80 hover:opacity-100 hover:border-emerald-400 transition-all select-none";
+                    const parts = item.split("|");
+                    const icon = parts[1] || "🌱";
+                    const stage = parts[2] || "seed";
+                    const days = parts[3] || "0";
+                    const dry = parts[4] === "1";
+
+                    if (stage === "bloom") {
+                        cell.innerHTML = `
+                            <span class="text-2xl animate-bounce">${icon}</span>
+                            <span class="text-[9px] font-extrabold text-amber-300 bg-amber-950/90 px-1.5 py-0.5 rounded mt-0.5 border border-amber-500/80 shadow">HARVEST</span>
+                        `;
+                    } else if (dry) {
+                        cell.innerHTML = `
+                            <span class="text-xl">🍂</span>
+                            <span class="text-[9px] font-bold text-amber-200 bg-amber-950/80 px-1 py-0.5 rounded mt-0.5">Dry (Water)</span>
+                        `;
+                    } else if (stage === "sprout") {
+                        cell.innerHTML = `
+                            <span class="text-xl">🌿</span>
+                            <span class="text-[9px] font-bold text-emerald-200 bg-emerald-950/80 px-1 py-0.5 rounded mt-0.5">Sprout (Day ${days})</span>
+                        `;
+                    } else {
+                        cell.innerHTML = `
+                            <span class="text-xl">🌱</span>
+                            <span class="text-[9px] font-bold text-blue-300 bg-blue-950/80 px-1 py-0.5 rounded mt-0.5">Seed (Day ${days})</span>
+                        `;
+                    }
+                } else {
+                    cell.className = "aspect-square bg-[#2a3825] rounded-xl flex flex-col items-center justify-center p-1 border border-emerald-800 text-center overflow-hidden cursor-pointer opacity-80 hover:opacity-100 hover:border-emerald-400 transition-all select-none";
+                    cell.innerHTML = `<span class="text-2xl opacity-40">🌱</span>`;
+                }
+
+                cell.addEventListener("click", () => onTileClick(i));
+                grid.appendChild(cell);
+            }
+        }
+
+        function updateResources(water, seeds, energy, hope, coins) {
+            if (typeof water === "object" && water !== null) {
+                const args = water;
+                water = args.water !== undefined ? args.water : 0;
+                seeds = args.seeds !== undefined ? args.seeds : 0;
+                energy = args.energy !== undefined ? args.energy : 0;
+                hope = args.hope !== undefined ? args.hope : 0;
+                coins = args.coins !== undefined ? args.coins : 0;
+            } else {
+                water = water !== undefined ? water : 0;
+                seeds = seeds !== undefined ? seeds : 0;
+                energy = energy !== undefined ? energy : 0;
+                hope = hope !== undefined ? hope : 0;
+                coins = coins !== undefined ? coins : 0;
+            }
+
+            resourcesState = {water, seeds, energy, hope, coins};
+
+            const waterMax = 200, seedsMax = 100, energyMax = 120, hopeMax = 100;
+            document.getElementById("water-text").innerText = `${water} / ${waterMax} L`;
+            document.getElementById("water-bar").style.width = `${Math.min(100, (water / waterMax) * 100)}%`;
+
+            document.getElementById("seeds-text").innerText = `${seeds} / ${seedsMax}`;
+            document.getElementById("seeds-bar").style.width = `${Math.min(100, (seeds / seedsMax) * 100)}%`;
+
+            document.getElementById("energy-text").innerText = `${energy} / ${energyMax} Wh`;
+            document.getElementById("energy-bar").style.width = `${Math.min(100, (energy / energyMax) * 100)}%`;
+
+            document.getElementById("hope-text").innerText = `${hope} / ${hopeMax}`;
+            document.getElementById("hope-bar").style.width = `${Math.min(100, (hope / hopeMax) * 100)}%`;
+
+            document.getElementById("coins-text").innerText = `${coins} Coins`;
+        }
+
+        function addPlantsToDropdown(plants) {
+            refreshCropSelectorOptions();
+        }
+
+        function pushAction(action) {
+            displayActionHistory.push(action);
+            if (displayActionHistory.length > 8) displayActionHistory.shift();
+            renderActionStack();
+        }
+
+        function renderActionStack() {
+            const container = document.getElementById("action-stack");
+            container.innerHTML = "";
+            [...displayActionHistory].reverse().forEach(act => {
+                const div = document.createElement("div");
+                div.className = "bg-emerald-950/60 border-l-2 border-amber-500 px-3 py-2 rounded text-xs text-emerald-100";
+                div.textContent = `→ ${act}`;
+                container.appendChild(div);
+            });
+        }
+
+        function triggerUndo() {
+            if (!isGameUnlocked) return;
+            for (let i = gardenGridState.length - 1; i >= 0; i--) {
+                if (gardenGridState[i] !== null) {
+                    gardenGridState[i] = null;
+                    resourcesState.coins += 10;
+                    resourcesState.seeds += 1;
+                    pushAction(`Undid planting on grid cell #${i}`);
+                    updateResources(resourcesState);
+                    renderGarden();
+                    return;
+                }
+            }
+            pushAction("Nothing to undo");
+        }
+
+        function triggerAdvanceDay() {
+            if (!isGameUnlocked) return;
+            currentDay++;
+            updateDay(currentDay);
+            resourcesState.solar = Math.min(120, resourcesState.solar + 20);
+
+            let maturedCount = 0;
+            for (let i = 0; i < gardenGridState.length; i++) {
+                const item = gardenGridState[i];
+                if (item) {
+                    const parts = item.split("|");
+                    const cropName = parts[0];
+                    const icon = parts[1];
+                    let stage = parts[2];
+                    let days = parseInt(parts[3] || "0") + 1;
+                    let dry = parts[4] === "1";
+
+                    if (stage !== "bloom" && !dry) {
+                        if (days >= 5) {
+                            stage = "bloom";
+                            maturedCount++;
+                        } else if (days >= 2) {
+                            stage = "sprout";
+                        }
+                        
+                        if (Math.random() < 0.25) {
+                            dry = true;
+                        }
+
+                        gardenGridState[i] = `${cropName}|${icon}|${stage}|${days}|${dry ? "1" : "0"}`;
+                    }
+                }
+            }
+
+            const randomEv = climateEventsList[Math.floor(Math.random() * climateEventsList.length)];
+            pushAction(`Day ${currentDay}: Advanced time! ${maturedCount > 0 ? `${maturedCount} plant(s) matured!` : "Crops growing..."}`);
+            
+            updateResources(resourcesState);
+            renderGarden();
+        }
+
+        function showToast(msg) {
+            const toast = document.createElement("div");
+            toast.className = "fixed bottom-6 right-6 bg-emerald-900 border border-emerald-400 text-white px-5 py-3 rounded-2xl shadow-2xl z-50 text-sm";
+            toast.textContent = msg;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 2500);
+        }
+
+        function loadTopic() {
+            const key = document.getElementById("topic-selector").value;
+            document.getElementById("code-editor").value = topicTemplates[key].code;
+        }
+
+        function switchTab(tab) {
+            document.getElementById("view-game").classList.toggle("hidden", tab !== "game");
+            document.getElementById("view-code").classList.toggle("hidden", tab !== "code");
+            document.getElementById("tab-game").classList.toggle("bg-[#283623]", tab === "game");
+            document.getElementById("tab-game").classList.toggle("text-emerald-100", tab === "game");
+            document.getElementById("tab-code").classList.toggle("bg-[#283623]", tab === "code");
+            document.getElementById("tab-code").classList.toggle("text-emerald-100", tab === "code");
+        }
+
+        window.onload = () => {
+            document.getElementById("version-badge").textContent = "v" + APP_VERSION;
+            lucide.createIcons();
+            renderGarden();
+            renderActionStack();
+
+            updateResources(0, 0, 0, 0, 0);
+
+            const select = document.getElementById("topic-selector");
+            Object.keys(topicTemplates).forEach(k => {
+                const opt = document.createElement("option");
+                opt.value = k;
+                opt.textContent = topicTemplates[k].title;
+                select.appendChild(opt);
+            });
+
+            loadTopic();
+            switchTab("game");
+
+            initPyodide();
+        };
+    </script>
+</body>
+</html>
