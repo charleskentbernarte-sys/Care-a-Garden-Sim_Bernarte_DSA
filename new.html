@@ -1,0 +1,2348 @@
+<!--
+
+# Changelog
+
+## [0.3.2] - 2026-10-19
+- Updated application version to 0.3.2 across code headers and UI elements.
+- Added local file protocol (file:///) fallback support to run directly without terminal server.
+- Added a cozy garden-themed startup loading screen with progress bar and tip carousel.
+- Fixed audio context initialization on loading screen entry to ensure instant BGM & SFX playback.
+- Added Crop Rotting Mechanic: Unharvested bloomed plants decay into rotten crops after 3 days.
+
+-->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Care a Garden - A Cozy Farming Adventure</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.26.1/full/pyodide.js" onerror="window.pyodideCdnFailed=true;"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap');
+        
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: #0e150d;
+            color: #f3f4f6;
+        }
+        .story-font { font-family: 'Playfair Display', serif; }
+        .code-font { font-family: 'JetBrains Mono', monospace; }
+        
+        .glass-panel {
+            background: rgba(23, 36, 21, 0.75);
+            backdrop-filter: blur(14px);
+            border: 1px solid rgba(120, 143, 114, 0.3);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.45);
+        }
+
+        .menu-bg {
+            background: radial-gradient(circle at 50% 35%, #1d3819 0%, #0c180b 65%, #040804 100%);
+        }
+
+        @keyframes shine {
+            0% { transform: translateX(-100%) rotate(25deg); }
+            50%, 100% { transform: translateX(200%) rotate(25deg); }
+        }
+
+        .btn-play-juicy {
+            position: relative;
+            overflow: hidden;
+            background: linear-gradient(135deg, #34d399 0%, #10b981 50%, #059669 100%);
+            box-shadow: 0 0 25px rgba(52, 211, 153, 0.5), inset 0 2px 4px rgba(255, 255, 255, 0.4);
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .btn-play-juicy::after {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: linear-gradient(60deg, transparent 30%, rgba(255, 255, 255, 0.4) 50%, transparent 70%);
+            animation: shine 3.5s infinite;
+            pointer-events: none;
+        }
+        .btn-play-juicy:hover {
+            transform: translateY(-3px) scale(1.03);
+            box-shadow: 0 12px 35px rgba(52, 211, 153, 0.7), inset 0 2px 4px rgba(255, 255, 255, 0.6);
+        }
+
+        #canvas-container {
+            width: 100%;
+            height: 720px;
+            position: relative;
+            border-radius: 1.5rem;
+            overflow: hidden;
+            background: radial-gradient(circle at center, #1c2b1a 0%, #0c140b 100%);
+            cursor: grab;
+        }
+        #canvas-container:active {
+            cursor: grabbing;
+        }
+        .tree-node-locked {
+            opacity: 0.4;
+            filter: grayscale(1);
+            border-color: rgba(239, 68, 68, 0.4) !important;
+        }
+        .tree-node-unlocked {
+            opacity: 1;
+            filter: grayscale(0);
+            border-color: rgba(52, 211, 153, 0.8) !important;
+            box-shadow: 0 0 12px rgba(52, 211, 153, 0.3);
+        }
+        
+        .ascii-art-screen {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            line-height: 1.15;
+            letter-spacing: 0px;
+            white-space: pre;
+            color: #34d399;
+            text-shadow: 0 0 8px rgba(52, 211, 153, 0.6);
+            user-select: none;
+        }
+
+        @keyframes particleFloat {
+            0% { transform: translateY(0px) rotate(0deg); opacity: 0.2; }
+            50% { opacity: 0.8; }
+            100% { transform: translateY(-100px) rotate(360deg); opacity: 0; }
+        }
+        .particle {
+            position: absolute;
+            background: rgba(110, 231, 183, 0.4);
+            border-radius: 50%;
+            pointer-events: none;
+            animation: particleFloat 6s infinite ease-in-out;
+        }
+
+        @keyframes popIn {
+            0% { transform: scale(0.7); opacity: 0; }
+            80% { transform: scale(1.05); opacity: 1; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .animate-pop-in {
+            animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+
+        @keyframes sproutPulse {
+            0%, 100% { transform: scale(1) rotate(0deg); }
+            50% { transform: scale(1.12) rotate(4deg); }
+        }
+        .animate-sprout {
+            animation: sproutPulse 2.5s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body class="min-h-screen p-4 flex flex-col justify-between overflow-x-hidden relative">
+
+    <!-- COZY GARDEN STARTUP LOADING SCREEN OVERLAY -->
+    <div id="startup-loading-overlay" class="fixed inset-0 z-50 menu-bg flex flex-col items-center justify-center p-6 transition-all duration-1000">
+        <div id="loading-particle-container" class="absolute inset-0 overflow-hidden pointer-events-none"></div>
+
+        <div class="max-w-md w-full flex flex-col items-center text-center space-y-6 relative z-10">
+            <div class="relative flex items-center justify-center">
+                <div class="w-28 h-28 rounded-full bg-gradient-to-tr from-emerald-600 via-teal-500 to-lime-400 p-1 shadow-[0_0_40px_rgba(52,211,153,0.5)] animate-sprout">
+                    <div class="w-full h-full bg-[#0a1409] rounded-full flex items-center justify-center">
+                        <i data-lucide="sprout" class="w-14 h-14 text-emerald-400 drop-shadow-[0_0_15px_rgba(52,211,153,0.9)]"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <h1 class="text-3xl font-extrabold text-white tracking-tight drop-shadow-md">Care a Garden</h1>
+                <p class="text-xs font-semibold text-emerald-300 uppercase tracking-widest mt-1">Preparing Whispering Valley...</p>
+            </div>
+
+            <div class="glass-panel px-5 py-3 rounded-2xl w-full border border-emerald-700/50 min-h-[64px] flex items-center justify-center">
+                <p id="loading-tip-text" class="text-xs text-emerald-200/90 italic font-medium transition-opacity duration-300">
+                    "Preparing fertile soil and planting ancient seeds..."
+                </p>
+            </div>
+
+            <div class="w-full space-y-2">
+                <div class="w-full bg-[#121f11] h-3 rounded-full overflow-hidden border border-emerald-700/40 p-0.5">
+                    <div id="loading-progress-bar" class="bg-gradient-to-r from-emerald-500 via-teal-400 to-lime-300 h-full rounded-full transition-all duration-300" style="width: 5%"></div>
+                </div>
+                <div class="flex justify-between text-[11px] font-mono text-emerald-400/80">
+                    <span id="loading-status-msg">Initializing Code Engine...</span>
+                    <span id="loading-percent-text">5%</span>
+                </div>
+            </div>
+
+            <button id="enter-game-btn" onclick="dismissStartupLoadingScreen()" class="hidden w-full btn-play-juicy text-slate-950 font-black text-base py-4 px-8 rounded-2xl cursor-pointer flex items-center justify-center gap-3 animate-pop-in">
+                <i data-lucide="sparkles" class="w-5 h-5 text-slate-950"></i>
+                <span>ENTER WHISPERING VALLEY</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- MAIN MENU SCREEN OVERLAY -->
+    <div id="main-menu-overlay" class="fixed inset-0 z-40 menu-bg flex flex-col items-center justify-center p-6 transition-all duration-700">
+        <div id="menu-particle-container" class="absolute inset-0 overflow-hidden pointer-events-none"></div>
+
+        <div class="max-w-md w-full flex flex-col items-center text-center space-y-6 relative z-10">
+            <div class="flex flex-col items-center gap-3">
+                <div class="w-20 h-20 rounded-3xl bg-gradient-to-br from-emerald-400 to-teal-700 p-0.5 shadow-2xl flex items-center justify-center transform hover:rotate-3 transition-transform duration-300">
+                    <div class="w-full h-full bg-[#0a1409] rounded-[22px] flex items-center justify-center relative overflow-hidden">
+                        <div class="absolute inset-0 bg-emerald-500/10 animate-pulse"></div>
+                        <i data-lucide="sprout" class="w-10 h-10 text-emerald-400 drop-shadow-[0_0_12px_rgba(52,211,153,0.8)]"></i>
+                    </div>
+                </div>
+
+                <div>
+                    <h1 class="text-3xl md:text-4xl font-extrabold tracking-tight text-white drop-shadow-md">
+                        Care a Garden
+                    </h1>
+                    <p class="text-xs font-semibold text-emerald-300 tracking-widest uppercase mt-1">
+                        A Cozy Farming Adventure
+                    </p>
+                </div>
+            </div>
+
+            <div class="bg-emerald-950/60 border border-emerald-500/30 px-4 py-1.5 rounded-full backdrop-blur-md">
+                <p class="text-xs text-emerald-200">🌻 Restore Whispering Valley, one seed at a time.</p>
+            </div>
+
+            <div class="w-full space-y-3.5 pt-2">
+                <button onclick="startNewGameSequence()" class="w-full btn-play-juicy text-slate-950 font-black text-lg py-4 px-8 rounded-2xl cursor-pointer flex items-center justify-center gap-3 group">
+                    <i data-lucide="play" class="w-6 h-6 fill-slate-950 group-hover:scale-110 transition-transform"></i>
+                    <span>START YOUR JOURNEY</span>
+                </button>
+
+                <button onclick="toggleMenuSettings()" class="w-full glass-panel hover:bg-emerald-900/50 text-emerald-200 font-bold text-sm py-3 px-6 rounded-2xl transition-all cursor-pointer flex items-center justify-center gap-2 border border-emerald-700/50">
+                    <i data-lucide="settings" class="w-4 h-4 text-emerald-400"></i>
+                    <span>SETTINGS & AUDIO</span>
+                </button>
+            </div>
+
+            <p class="text-[11px] text-emerald-500/70 font-mono">v0.3.2 • Care a Garden</p>
+        </div>
+    </div>
+
+    <!-- LEVEL COMPLETE ANNOUNCEMENT POPUP BANNER -->
+    <div id="level-complete-modal" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-md hidden flex items-center justify-center p-4">
+        <div class="glass-panel p-8 rounded-3xl max-w-md w-full text-center space-y-5 border-2 border-emerald-400/80 shadow-2xl relative overflow-hidden animate-pop-in">
+            <div class="absolute -top-16 -right-16 w-36 h-36 bg-emerald-500/20 rounded-full blur-2xl"></div>
+            
+            <div class="inline-flex p-4 bg-emerald-500/20 border border-emerald-400/80 rounded-full text-emerald-300 shadow-lg">
+                <i data-lucide="trophy" class="w-10 h-10"></i>
+            </div>
+
+            <div>
+                <h2 class="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-300 via-teal-200 to-amber-300 tracking-wider" id="level-complete-title">
+                    LEVEL 1 COMPLETE!
+                </h2>
+                <p class="text-xs text-emerald-300/90 mt-2 font-medium" id="level-complete-subtitle">
+                    Great job, Farmer! Your crops bloomed and Whispering Valley is flourishing!
+                </p>
+            </div>
+
+            <button onclick="proceedFromLevelComplete()" class="w-full bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-black font-extrabold py-4 rounded-2xl text-sm transition-all shadow-xl flex items-center justify-center gap-2 cursor-pointer">
+                <span>VIEW STORY CUTSCENE</span> <i data-lucide="arrow-right" class="w-5 h-5"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- SETTINGS MODAL -->
+    <div id="settings-modal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-md hidden flex items-center justify-center p-4">
+        <div class="glass-panel p-6 rounded-2xl max-w-sm w-full space-y-4 border border-emerald-600/50">
+            <div class="flex items-center justify-between border-b border-emerald-800/60 pb-3">
+                <h3 class="font-bold text-emerald-200 flex items-center gap-2">
+                    <i data-lucide="sliders" class="w-4 h-4 text-emerald-400"></i> Game Preferences
+                </h3>
+                <button onclick="toggleMenuSettings()" class="text-emerald-400 hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+
+            <div class="space-y-3">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs text-emerald-200 font-medium">Background Music (BGM)</span>
+                    <button onclick="toggleAudioBGM()" class="px-3 py-1 bg-emerald-950 border border-emerald-600/60 rounded-lg text-xs font-bold text-emerald-300">
+                        Toggle Sound
+                    </button>
+                </div>
+            </div>
+
+            <button onclick="toggleMenuSettings()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-black font-bold py-2 rounded-xl text-xs transition-all mt-2">
+                Save & Close
+            </button>
+        </div>
+    </div>
+
+    <!-- EARNED ITEM REWARD POPUP MODAL -->
+    <div id="reward-modal" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-md hidden flex items-center justify-center p-4">
+        <div class="glass-panel p-6 rounded-3xl max-w-md w-full text-center space-y-4 border-2 border-amber-400/80 shadow-2xl relative overflow-hidden">
+            <div class="absolute -top-12 -right-12 w-32 h-32 bg-amber-500/20 rounded-full blur-2xl"></div>
+            
+            <div class="inline-flex p-3.5 bg-amber-500/20 border border-amber-400/60 rounded-full text-amber-300">
+                <i data-lucide="award" class="w-8 h-8"></i>
+            </div>
+
+            <div>
+                <h3 class="text-2xl font-extrabold text-amber-200" id="reward-modal-title">LEVEL UP REWARD EARNED!</h3>
+                <p class="text-xs text-emerald-300/90 mt-1" id="reward-modal-sub">Whispering Valley rewards your farming achievements!</p>
+            </div>
+
+            <div class="bg-black/40 border border-emerald-800/80 rounded-2xl p-4 text-left space-y-2">
+                <h4 class="text-xs font-bold text-amber-400 uppercase tracking-widest border-b border-emerald-900/80 pb-1">Items Unlocked:</h4>
+                <div class="grid grid-cols-2 gap-2 text-xs font-semibold text-emerald-200 pt-1" id="reward-items-container"></div>
+            </div>
+
+            <button onclick="closeRewardModal()" class="w-full bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 text-black font-extrabold py-3.5 rounded-xl text-sm transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer">
+                <span>COLLECT REWARDS</span> <i data-lucide="check-circle" class="w-4 h-4"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- ANIMATED STORY CUTSCENE OVERLAY -->
+    <div id="cutscene-overlay" class="fixed inset-0 z-40 bg-[#070d06] flex flex-col items-center justify-center p-6 transition-all duration-700 hidden">
+        <div id="particle-container" class="absolute inset-0 overflow-hidden pointer-events-none"></div>
+
+        <div class="max-w-2xl w-full text-center space-y-5 relative z-10">
+            <button onclick="finishCutsceneAndContinue()" class="absolute -top-10 right-0 text-xs text-emerald-300/80 hover:text-emerald-100 bg-emerald-950/60 border border-emerald-800/80 px-3 py-1.5 rounded-lg flex items-center gap-1 cursor-pointer transition-all">
+                <span>Skip Scene</span> <i data-lucide="skip-forward" class="w-3.5 h-3.5"></i>
+            </button>
+
+            <div class="bg-[#040804] border-2 border-emerald-500/50 rounded-2xl p-4 shadow-2xl relative overflow-hidden flex items-center justify-center min-h-[220px]">
+                <div class="absolute inset-0 bg-gradient-to-b from-transparent via-emerald-950/10 to-black/60 pointer-events-none"></div>
+                <div id="ascii-canvas" class="ascii-art-screen text-center transition-all duration-300"></div>
+            </div>
+
+            <div class="inline-flex items-center gap-2 bg-emerald-950/90 border border-emerald-500/60 px-4 py-1 rounded-full text-xs font-semibold text-emerald-300 shadow">
+                <span id="cutscene-chapter-tag">LEVEL 1 • THE CORPORATE ESCAPE</span>
+            </div>
+
+            <div class="glass-panel p-6 rounded-2xl text-left space-y-4 min-h-[160px] flex flex-col justify-between border border-emerald-700/40">
+                <p id="cutscene-text" class="story-font text-base md:text-lg text-emerald-50 leading-relaxed italic min-h-[60px]">
+                    Initializing story...
+                </p>
+
+                <div class="flex items-center justify-between border-t border-emerald-800/40 pt-3 text-xs text-emerald-400/80">
+                    <span id="cutscene-progress">Farm Chapter Level 1</span>
+                    <span class="animate-pulse font-mono text-[11px]">Click BELOW to continue ▶</span>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-center gap-4 pt-1">
+                <button id="cutscene-next-btn" onclick="finishCutsceneAndContinue()" class="bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-black font-extrabold text-sm md:text-base px-8 py-3.5 rounded-2xl shadow-xl transition-all hover:scale-105 cursor-pointer flex items-center gap-2">
+                    <span>CONTINUE TO FARM</span> <i data-lucide="arrow-right" class="w-4 h-4"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN GAME HEADER -->
+    <header class="w-full max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4 pb-2 border-b border-[#43533c]/40">
+        <div>
+            <div class="flex items-center gap-2">
+                <h1 class="text-2xl font-extrabold tracking-tight text-emerald-100 flex items-center gap-2">
+                    🌾 Care a Garden <span class="text-xs bg-emerald-900/80 text-emerald-300 border border-emerald-500/50 px-2 py-0.5 rounded-full font-mono">3D Cozy v0.3.2</span>
+                </h1>
+                <span id="version-badge" class="text-[10px] font-bold uppercase tracking-widest text-emerald-400/90 bg-emerald-950/50 border border-emerald-800/60 px-2 py-0.5 rounded-full"></span>
+            </div>
+            <p class="text-xs text-emerald-300/80 font-medium">Restore Grandpa's Farm & Save Whispering Valley</p>
+        </div>
+        
+        <div class="flex items-center gap-3">
+            <button onclick="returnToMainMenu()" class="glass-panel px-3 py-2 rounded-xl flex items-center gap-1.5 text-xs font-bold text-amber-300 hover:text-amber-100 cursor-pointer border border-amber-700/60 transition-all">
+                <i data-lucide="home" class="w-4 h-4 text-amber-400"></i>
+                <span>Main Menu</span>
+            </button>
+
+            <button onclick="toggleAudioBGM()" id="bgm-toggle-btn" class="glass-panel px-3 py-2 rounded-xl flex items-center gap-2 text-xs font-bold text-emerald-300 hover:text-emerald-100 cursor-pointer border border-emerald-700/60 transition-all">
+                <i data-lucide="volume-2" id="bgm-icon" class="w-4 h-4 text-emerald-400"></i>
+                <span id="bgm-status-text">BGM On</span>
+            </button>
+
+            <div class="glass-panel px-4 py-2 rounded-xl flex flex-col items-end">
+                <span class="text-[10px] text-amber-400 uppercase tracking-widest font-bold">FARM LEVEL</span>
+                <span class="text-lg font-extrabold text-amber-200" id="level-counter">1</span>
+            </div>
+            <div class="glass-panel px-4 py-2 rounded-xl flex flex-col items-end">
+                <span class="text-[10px] text-emerald-400 uppercase tracking-widest font-bold">SEASON DAY</span>
+                <span class="text-lg font-extrabold text-white" id="day-counter">1</span>
+            </div>
+            <div class="glass-panel px-4 py-2 rounded-xl flex flex-col items-end">
+                <span class="text-[10px] text-emerald-400 uppercase tracking-widest font-bold">VALLEY HEALTH</span>
+                <span class="text-lg font-extrabold text-emerald-300" id="stewardship-counter">0%</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="w-full max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-4 flex-grow">
+        
+        <!-- LEFT: FARM RESOURCES -->
+        <section id="resources-section" class="lg:col-span-3 glass-panel rounded-2xl p-4 transition-all opacity-50 pointer-events-none">
+            <h2 class="text-base font-bold text-emerald-200 border-b border-[#43533c]/30 pb-2 mb-4 flex items-center justify-between">
+                <span class="flex items-center gap-2">
+                    <i data-lucide="barn" class="w-4 h-4 text-emerald-400"></i> Barn Storage
+                </span>
+                <span id="resource-lock-badge" class="text-[10px] font-bold bg-amber-950/80 text-amber-400 border border-amber-600/60 px-2 py-0.5 rounded">LOCKED</span>
+            </h2>
+            
+            <div class="space-y-4">
+                <div>
+                    <div class="flex justify-between text-xs font-semibold">
+                        <span class="flex items-center gap-1.5 text-amber-300">⭐ Farmer XP</span>
+                        <span id="xp-text">0 / 40 XP</span>
+                    </div>
+                    <div class="w-full bg-[#1b2219] h-2.5 rounded-full overflow-hidden">
+                        <div id="xp-bar" class="bg-gradient-to-r from-amber-500 to-yellow-300 h-full rounded-full" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="flex justify-between text-xs font-semibold">
+                        <span class="flex items-center gap-1.5 text-blue-300">💧 Well Water</span>
+                        <span id="water-text">0 / 200 L</span>
+                    </div>
+                    <div class="w-full bg-[#1b2219] h-2.5 rounded-full overflow-hidden">
+                        <div id="water-bar" class="bg-gradient-to-r from-blue-500 to-cyan-400 h-full rounded-full" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="flex justify-between text-xs font-semibold">
+                        <span class="flex items-center gap-1.5 text-emerald-300">🌱 Seed Bag</span>
+                        <span id="seeds-text">0 / 100</span>
+                    </div>
+                    <div class="w-full bg-[#1b2219] h-2.5 rounded-full overflow-hidden">
+                        <div id="seeds-bar" class="bg-gradient-to-r from-emerald-500 to-lime-400 h-full rounded-full" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="flex justify-between text-xs font-semibold">
+                        <span class="flex items-center gap-1.5 text-amber-300">☀️ Sunlight Energy</span>
+                        <span id="energy-text">0 / 120 Wh</span>
+                    </div>
+                    <div class="w-full bg-[#1b2219] h-2.5 rounded-full overflow-hidden">
+                        <div id="energy-bar" class="bg-gradient-to-r from-amber-500 to-yellow-300 h-full rounded-full" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="flex justify-between text-xs font-semibold">
+                        <span class="flex items-center gap-1.5 text-rose-300">💗 Town Hope</span>
+                        <span id="hope-text">0 / 100</span>
+                    </div>
+                    <div class="w-full bg-[#1b2219] h-2.5 rounded-full overflow-hidden">
+                        <div id="hope-bar" class="bg-gradient-to-r from-rose-500 to-pink-400 h-full rounded-full" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="flex justify-between text-xs font-semibold">
+                        <span class="flex items-center gap-1.5 text-yellow-200">🪙 Gold Coins</span>
+                        <span id="coins-text" class="text-yellow-200">0 Gold</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- CENTER: MAX WIDE & ZOOMABLE 3D VIEWPORT & CODE LAB -->
+        <section class="lg:col-span-6 flex flex-col gap-4">
+            <div class="flex bg-[#192218] p-1.5 rounded-xl border border-emerald-800/40 w-fit">
+                <button onclick="switchTab('game')" id="tab-game" class="px-4 py-1.5 rounded-lg text-xs font-bold bg-[#283623] text-emerald-100 flex items-center gap-1.5">
+                    <i data-lucide="box" class="w-4 h-4"></i> 3D Sanctuary Farm
+                </button>
+                <button onclick="switchTab('code')" id="tab-code" class="px-4 py-1.5 rounded-lg text-xs font-bold text-emerald-400/80 hover:text-emerald-100 flex items-center gap-1.5">
+                    <i data-lucide="code" class="w-4 h-4"></i> Code Lab (Prerequisite)
+                </button>
+            </div>
+
+            <div id="prereq-banner" class="bg-amber-950/70 border border-amber-600/60 p-3 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+                <div class="flex items-center gap-2 text-amber-200">
+                    <i data-lucide="lock" class="w-5 h-5 text-amber-400 shrink-0"></i>
+                    <span id="banner-status-text"><strong>Prerequisite Locked:</strong> Click "Run All Topics" in the Code Lab to activate the 3D plot and start farming.</span>
+                </div>
+                <button onclick="runAllTopicsSequentially()" class="bg-amber-600 hover:bg-amber-500 text-black font-bold px-3 py-1.5 rounded-lg text-xs transition-all whitespace-nowrap self-end sm:self-auto shrink-0 flex items-center gap-1 cursor-pointer">
+                    <i data-lucide="play-circle" class="w-4 h-4"></i> Run All Topics
+                </button>
+            </div>
+
+            <div id="view-game" class="glass-panel rounded-2xl p-6 min-h-[820px] flex flex-col gap-4">
+                <div>
+                    <div class="flex items-center justify-between mb-3">
+                        <div>
+                            <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                                3D Soil Grid <span id="grid-status-badge" class="text-[10px] bg-red-950/80 text-red-400 border border-red-700/60 px-2 py-0.5 rounded uppercase font-bold">3D Plot Locked</span>
+                            </h2>
+                            <p class="text-xs text-emerald-300" id="grid-sub-text">🔒 Run all 12 Code topics first. Use scroll wheel or zoom buttons below to zoom in/out.</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-emerald-300">Seed Pouch:</span>
+                            <select id="crop-selector" disabled class="bg-[#1b2219] border border-emerald-700 text-emerald-100 text-sm rounded-xl px-3 py-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                                <option value="">🔒 Seed Bag Locked</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="canvas-container" class="shadow-2xl border border-emerald-900/80">
+                        <div id="camera-controls-overlay" class="absolute bottom-5 right-5 z-10 flex gap-2 bg-black/80 backdrop-blur p-2 rounded-2xl border border-emerald-800/80 text-xs shadow-2xl">
+                            <button onclick="zoom3DCamera(-1.5)" class="px-3 py-2 hover:bg-emerald-800/60 rounded-xl text-emerald-200 flex items-center gap-1.5 font-bold cursor-pointer transition-all" title="Zoom In"><i data-lucide="zoom-in" class="w-4 h-4"></i> <span>Zoom +</span></button>
+                            <button onclick="zoom3DCamera(1.5)" class="px-3 py-2 hover:bg-emerald-800/60 rounded-xl text-emerald-200 flex items-center gap-1.5 font-bold cursor-pointer transition-all" title="Zoom Out"><i data-lucide="zoom-out" class="w-4 h-4"></i> <span>Zoom -</span></button>
+                            <div class="w-px h-5 bg-emerald-800/80 my-auto"></div>
+                            <button onclick="rotate3DCamera(-0.3)" class="px-3 py-2 hover:bg-emerald-800/60 rounded-xl text-emerald-200 flex items-center gap-1.5 font-semibold cursor-pointer transition-all" title="Rotate Left"><i data-lucide="rotate-ccw" class="w-4 h-4"></i> <span>Rotate</span></button>
+                            <button onclick="rotate3DCamera(0.3)" class="px-3 py-2 hover:bg-emerald-800/60 rounded-xl text-emerald-200 flex items-center gap-1.5 font-semibold cursor-pointer transition-all" title="Rotate Right"><i data-lucide="rotate-cw" class="w-4 h-4"></i></button>
+                            <button onclick="reset3DCamera()" class="px-3 py-2 hover:bg-emerald-800/60 rounded-xl text-emerald-200 flex items-center gap-1.5 font-semibold cursor-pointer transition-all" title="Reset View"><i data-lucide="compass" class="w-4 h-4"></i> <span>Reset</span></button>
+                        </div>
+                        <div id="hover-tile-info" class="absolute top-5 left-5 z-10 bg-black/80 backdrop-blur px-4 py-2.5 rounded-2xl border border-emerald-800/80 text-xs font-mono text-emerald-300 pointer-events-none shadow-2xl">
+                            Hover over a 3D tile... (Scroll wheel to zoom)
+                        </div>
+                    </div>
+                </div>
+
+                <div class="border-t border-[#43533c]/40 pt-4 mt-2">
+                    <h3 class="text-sm font-bold text-emerald-200 mb-1 flex items-center justify-between">
+                        <span class="flex items-center gap-2">
+                            <i data-lucide="git-fork" class="w-4 h-4 text-emerald-400"></i> Plant Ecosystem Tree
+                        </span>
+                        <span id="tree-status-tag" class="text-[10px] text-amber-300 bg-amber-950/80 border border-amber-600/60 px-2 py-0.5 rounded font-mono">Level 1 Active</span>
+                    </h3>
+                    <p class="text-xs text-emerald-300/80 mb-3">Rare plant species bloom and unlock as you gain farming XP and reach up to Level 10!</p>
+                    <div class="bg-[#111811] p-4 rounded-xl border border-emerald-900/60 overflow-x-auto text-xs">
+                        <div class="flex flex-col items-center gap-3 min-w-[620px]">
+                            <div class="bg-emerald-900/80 border border-emerald-400 text-emerald-100 px-4 py-1.5 rounded-lg font-bold shadow text-center flex items-center gap-1.5">
+                                🪴 Root: Care a Garden Sanctuary
+                            </div>
+                            <div class="w-0.5 h-3 bg-emerald-600/60"></div>
+                            
+                            <div class="flex justify-center gap-6 w-full relative">
+                                <div class="flex flex-col items-center">
+                                    <div id="tree-node-grasses" class="tree-node-unlocked bg-emerald-950 border text-emerald-200 px-3 py-1 rounded-md font-semibold text-center transition-all">
+                                        🌱 Tier 1: Ground Cover (Lvl 1-3)
+                                    </div>
+                                    <div class="w-0.5 h-3 bg-emerald-600/60 mt-2"></div>
+                                    <div class="flex flex-wrap gap-1.5 justify-center mt-1 max-w-[160px]">
+                                        <span id="tree-item-clover" class="tree-node-unlocked bg-[#1e2a1c] border text-emerald-300 px-2 py-0.5 rounded text-[11px]">🍀 Clover</span>
+                                        <span id="tree-item-shrub" class="tree-node-locked bg-[#1e2a1c] border text-emerald-300 px-2 py-0.5 rounded text-[11px]">🌿 Shrub (Lvl 3)</span>
+                                        <span id="tree-item-wheat" class="tree-node-locked bg-[#1e2a1c] border text-emerald-300 px-2 py-0.5 rounded text-[11px]">🌾 Wheat (Lvl 6)</span>
+                                    </div>
+                                </div>
+
+                                <div class="flex flex-col items-center">
+                                    <div id="tree-node-flowers" class="tree-node-unlocked bg-emerald-950 border text-emerald-200 px-3 py-1 rounded-md font-semibold text-center transition-all">
+                                        🌸 Tier 2: Floral Blooms (Lvl 1-5)
+                                    </div>
+                                    <div class="w-0.5 h-3 bg-emerald-600/60 mt-2"></div>
+                                    <div class="flex flex-wrap gap-1.5 justify-center mt-1 max-w-[200px]">
+                                        <span id="tree-item-flower" class="tree-node-unlocked bg-[#1e2a1c] border text-emerald-300 px-2 py-0.5 rounded text-[11px]">🌸 Native Flower</span>
+                                        <span id="tree-item-rose" class="tree-node-locked bg-[#1e2a1c] border text-emerald-300 px-2 py-0.5 rounded text-[11px]">🌹 Rose (Lvl 2)</span>
+                                        <span id="tree-item-wildflower" class="tree-node-locked bg-[#1e2a1c] border text-emerald-300 px-2 py-0.5 rounded text-[11px]">🌸 Wildflower (Lvl 3)</span>
+                                        <span id="tree-item-lavender" class="tree-node-locked bg-[#1e2a1c] border text-emerald-300 px-2 py-0.5 rounded text-[11px]">🪻 Lavender (Lvl 4)</span>
+                                        <span id="tree-item-orchid" class="tree-node-locked bg-[#1e2a1c] border text-emerald-300 px-2 py-0.5 rounded text-[11px]">🪷 Orchid (Lvl 5)</span>
+                                    </div>
+                                </div>
+
+                                <div class="flex flex-col items-center">
+                                    <div id="tree-node-apex" class="tree-node-locked bg-emerald-950 border text-amber-200 px-3 py-1 rounded-md font-semibold text-center transition-all">
+                                        🪷 Tier 3: Ancient Flora (Lvl 7-8)
+                                    </div>
+                                    <div class="w-0.5 h-3 bg-emerald-600/60 mt-2"></div>
+                                    <div class="flex flex-wrap gap-1.5 justify-center mt-1 max-w-[180px]">
+                                        <span id="tree-item-sunflower" class="tree-node-locked bg-[#1e2a1c] border text-amber-300 px-2 py-0.5 rounded text-[11px]">🌻 Sunflower (Lvl 7)</span>
+                                        <span id="tree-item-lotus" class="tree-node-locked bg-[#1e2a1c] border text-amber-300 px-2 py-0.5 rounded text-[11px]">🪷 Lotus (Lvl 8)</span>
+                                    </div>
+                                    <div class="w-0.5 h-3 bg-emerald-600/60 mt-2"></div>
+                                    <div id="tree-node-cosmic" class="tree-node-locked bg-emerald-950 border text-purple-300 px-3 py-1 rounded-md font-semibold text-center transition-all mt-1">
+                                        ✨ Tier 4: Cosmic Apex (Lvl 9-10)
+                                    </div>
+                                    <div class="flex gap-1.5 mt-2">
+                                        <span id="tree-item-lily" class="tree-node-locked bg-[#1e2a1c] border text-purple-300 px-2 py-0.5 rounded text-[11px]">🌺 Celestial Lily (Lvl 9)</span>
+                                        <span id="tree-item-treeoflife" class="tree-node-locked bg-[#1e2a1c] border text-purple-300 px-2 py-0.5 rounded text-[11px]">🌳 Tree of Life (Lvl 10)</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CODE EDITOR TAB (12 DSA TOPICS) -->
+            <div id="view-code" class="glass-panel rounded-2xl p-6 flex flex-col flex-grow hidden">
+                <h2 class="font-bold mb-3 flex items-center gap-2 text-emerald-200">
+                    <i data-lucide="code" class="w-5 h-5 text-emerald-400"></i> Code Lab (Topics 1-12)
+                </h2>
+                
+                <select id="topic-selector" onchange="loadTopic()" class="w-full bg-[#1b2219] border border-emerald-700 text-emerald-100 rounded-xl p-3 mb-4 text-sm font-semibold cursor-pointer">
+                    <option value="1">Topic 1: Plant OOP & Action History Stack</option>
+                    <option value="2">Topic 2: Weather FIFO Event Queue</option>
+                    <option value="3">Topic 3: 2D Soil Grid Coordinate System</option>
+                    <option value="4">Topic 4: Plant Ecosystem Tree</option>
+                    <option value="5">Topic 5: Binary Search Tree Crop Catalog</option>
+                    <option value="6">Topic 6: Plant Metadata Hash Table</option>
+                    <option value="7">Topic 7: Spatial Plot Graph Network</option>
+                    <option value="8">Topic 8: QuickSort Crop XP Sorter</option>
+                    <option value="9">Topic 9: Binary Search Catalog Query</option>
+                    <option value="10">Topic 10: Dijkstra's Water Pipe Router</option>
+                    <option value="11">Topic 11: Dynamic Programming Seed Capacity</option>
+                    <option value="12">Topic 12: Seed Vault Inventory System</option>
+                </select>
+
+                <textarea id="code-editor" readonly class="flex-1 bg-[#0a0f0a] border border-emerald-800 rounded-xl p-4 code-font text-sm font-medium leading-relaxed min-h-[300px]" spellcheck="false"></textarea>
+                
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+                    <button onclick="runPythonCode()" class="bg-emerald-600 hover:bg-emerald-500 py-3 rounded-xl font-bold text-white flex items-center justify-center gap-2 cursor-pointer">
+                        <i data-lucide="play" class="w-4 h-4"></i> Run Selected Topic Code
+                    </button>
+                    <button onclick="runAllTopicsSequentially()" class="bg-amber-600 hover:bg-amber-500 py-3 rounded-xl font-bold text-black flex items-center justify-center gap-2 cursor-pointer">
+                        <i data-lucide="fast-forward" class="w-4 h-4"></i> Run All Topics Sequentially
+                    </button>
+                </div>
+                
+                <div id="output-console" class="mt-4 bg-black/70 border border-emerald-900 rounded-xl p-4 text-xs max-h-48 overflow-auto font-mono whitespace-pre-wrap"></div>
+            </div>
+        </section>
+
+        <!-- RIGHT PANEL -->
+        <section class="lg:col-span-3 flex flex-col gap-4">
+            <div id="climate-queue-panel" class="glass-panel rounded-2xl p-4 transition-all opacity-50 pointer-events-none">
+                <h3 class="font-bold text-emerald-400 mb-3 flex items-center gap-2">
+                    <i data-lucide="cloud-sun" class="w-4 h-4"></i> Weather Forecast
+                </h3>
+                <div id="climate-queue" class="space-y-3 text-sm">
+                    <div class="p-3 bg-red-950/40 border border-red-900/60 rounded-xl text-xs text-red-300">
+                        🔒 Functionality locked until code execution
+                    </div>
+                </div>
+                <button id="advance-day-btn" disabled onclick="triggerAdvanceDay()" class="mt-4 w-full bg-transparent text-gray-500 border border-gray-700 py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-all disabled:cursor-not-allowed">
+                    <i data-lucide="play" class="w-4 h-4"></i> Advance Season Day (Locked)
+                </button>
+            </div>
+
+            <div id="stack-panel" class="glass-panel rounded-2xl p-4 flex-1 flex flex-col transition-all opacity-50 pointer-events-none">
+                <h3 class="font-bold text-emerald-400 mb-3 flex items-center gap-2">
+                    <i data-lucide="history" class="w-4 h-4"></i> Farm Activity Log
+                </h3>
+                <div id="action-stack" class="flex-1 space-y-2 text-sm overflow-auto">
+                    <div class="bg-red-950/40 border-l-2 border-red-500 px-3 py-2 rounded text-xs text-red-300">
+                        🔒 Execution locked
+                    </div>
+                </div>
+                <button id="undo-btn" disabled onclick="triggerUndo()" class="mt-4 w-full bg-[#1e261c] text-gray-500 py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2 border border-gray-800 disabled:cursor-not-allowed">
+                    <i data-lucide="undo-2" class="w-4 h-4"></i> Undo Last Action (Locked)
+                </button>
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        const APP_VERSION = "0.3.2";
+
+        let pyodideInstance = null;
+        let isGameUnlocked = false;
+        let gardenGridState = new Array(25).fill(null);
+        let displayActionHistory = [];
+
+        let currentDay = 1;
+        let currentLevel = 1;
+        let currentXP = 0;
+        let isCurrentlyRaining = false;
+        let pendingRewardLevel = null;
+        
+        const xpRequirements = { 1: 40, 2: 90, 3: 160, 4: 250, 5: 360, 6: 500, 7: 680, 8: 900, 9: 1200, 10: 1600 };
+        
+        const levelRewardsList = {
+            2: { coins: 50, water: 40, seeds: 15, hope: 15, unlocked: "🌹 Rose" },
+            3: { coins: 80, water: 50, seeds: 20, hope: 20, unlocked: "🌿 Shrub & 🌸 Wildflower" },
+            4: { coins: 120, water: 60, seeds: 25, hope: 25, unlocked: "🪻 Lavender" },
+            5: { coins: 160, water: 70, seeds: 30, hope: 30, unlocked: "🪷 Orchid" },
+            6: { coins: 220, water: 80, seeds: 35, hope: 35, unlocked: "🌾 Golden Wheat" },
+            7: { coins: 300, water: 90, seeds: 40, hope: 40, unlocked: "🌻 Sunflower" },
+            8: { coins: 400, water: 100, seeds: 45, hope: 45, unlocked: "🪷 Ancient Lotus" },
+            9: { coins: 550, water: 120, seeds: 50, hope: 50, unlocked: "🌺 Celestial Lily" },
+            10: { coins: 800, water: 150, seeds: 60, hope: 60, unlocked: "🌳 Tree of Life (MAX LEVEL)" }
+        };
+
+        let resourcesState = {"water": 0, "seeds": 0, "solar": 0, "hope": 0, "coins": 0};
+
+        const gardenTips = [
+            "\"Watering dry soil keeps plants healthy and prevents crops from wilting.\"",
+            "\"Gain XP by harvesting mature crops to level up and unlock rare flora.\"",
+            "\"Completing topics in the Code Lab unlocks full 3D plot controls.\"",
+            "\"Advancing season days grows planted seeds into blooming flowers!\""
+        ];
+
+        function startLoadingProgressSequence() {
+            let progress = 5;
+            let tipIndex = 0;
+            const progressBar = document.getElementById("loading-progress-bar");
+            const percentText = document.getElementById("loading-percent-text");
+            const statusMsg = document.getElementById("loading-status-msg");
+            const tipText = document.getElementById("loading-tip-text");
+
+            const tipInterval = setInterval(() => {
+                tipIndex = (tipIndex + 1) % gardenTips.length;
+                if (tipText) {
+                    tipText.style.opacity = '0';
+                    setTimeout(() => {
+                        tipText.innerText = gardenTips[tipIndex];
+                        tipText.style.opacity = '1';
+                    }, 300);
+                }
+            }, 2600);
+
+            const interval = setInterval(() => {
+                progress += Math.floor(Math.random() * 15) + 8;
+                if (progress >= 100) {
+                    progress = 100;
+                    clearInterval(interval);
+                    clearInterval(tipInterval);
+
+                    if (statusMsg) statusMsg.innerText = "Whispering Valley Ready!";
+                    if (percentText) percentText.innerText = "100%";
+                    if (progressBar) progressBar.style.width = "100%";
+
+                    const enterBtn = document.getElementById("enter-game-btn");
+                    if (enterBtn) {
+                        enterBtn.classList.remove("hidden");
+                    }
+                } else {
+                    if (progressBar) progressBar.style.width = `${progress}%`;
+                    if (percentText) percentText.innerText = `${progress}%`;
+                    if (progress < 40 && statusMsg) statusMsg.innerText = "Initializing 3D Garden Graphics...";
+                    else if (progress < 85 && statusMsg) statusMsg.innerText = "Compiling Data Structures...";
+                    else if (statusMsg) statusMsg.innerText = "Sprouting Seeds...";
+                }
+            }, 180);
+        }
+
+        window.dismissStartupLoadingScreen = function() {
+            initAudioContext();
+            startBGMLoop();
+            playTone(523.25, 'triangle', 0.25, 0.1);
+
+            const screen = document.getElementById("startup-loading-overlay");
+            if (screen) {
+                screen.classList.add("opacity-0", "pointer-events-none");
+                setTimeout(() => {
+                    screen.style.display = "none";
+                }, 800);
+            }
+        };
+
+        function initParticles(containerId) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            for (let i = 0; i < 18; i++) {
+                const particle = document.createElement("div");
+                particle.className = "particle";
+                const size = Math.random() * 4 + 2;
+                particle.style.width = `${size}px`;
+                particle.style.height = `${size}px`;
+                particle.style.left = `${Math.random() * 100}%`;
+                particle.style.top = `${Math.random() * 100}%`;
+                particle.style.animationDelay = `${Math.random() * 5}s`;
+                particle.style.animationDuration = `${Math.random() * 4 + 4}s`;
+                container.appendChild(particle);
+            }
+        }
+
+        const plantMasterRegistry = {
+            "Native Flower": { emoji: "🌸", minLevel: 1, cost: 5, xp: 8, coins: 20, hope: 8, color: 0xff69b4 },
+            "Clover": { emoji: "🍀", minLevel: 1, cost: 6, xp: 10, coins: 22, hope: 8, color: 0x32cd32 },
+            "Rose": { emoji: "🌹", minLevel: 2, cost: 10, xp: 15, coins: 30, hope: 10, color: 0xe60000 },
+            "Wildflower": { emoji: "🌸", minLevel: 3, cost: 8, xp: 18, coins: 32, hope: 9, color: 0xda70d6 },
+            "Drought-Tolerant Shrub": { emoji: "🌿", minLevel: 3, cost: 12, xp: 20, coins: 35, hope: 12, color: 0x2e8b57 },
+            "Lavender": { emoji: "🪻", minLevel: 4, cost: 14, xp: 22, coins: 38, hope: 14, color: 0x9966cc },
+            "Orchid": { emoji: "🪷", minLevel: 5, cost: 16, xp: 26, coins: 42, hope: 16, color: 0xda70d6 },
+            "Golden Wheat": { emoji: "🌾", minLevel: 6, cost: 18, xp: 30, coins: 48, hope: 18, color: 0xdaa520 },
+            "Sunflower": { emoji: "🌻", minLevel: 7, cost: 22, xp: 35, coins: 55, hope: 20, color: 0xffd700 },
+            "Lotus": { emoji: "🪷", minLevel: 8, cost: 26, xp: 42, coins: 65, hope: 24, color: 0xff1493 },
+            "Celestial Lily": { emoji: "🌺", minLevel: 9, cost: 32, xp: 50, coins: 80, hope: 30, color: 0xff007f },
+            "Tree of Life": { emoji: "🌳", minLevel: 10, cost: 50, xp: 75, coins: 120, hope: 45, color: 0x00ff7f }
+        };
+
+        const weatherList = [
+            {kind: "Sunny Breeze", icon: "☀️", rain: false},
+            {kind: "Gentle Rain", icon: "🌧️", rain: true},
+            {kind: "Morning Dew", icon: "🌤️", rain: false},
+            {kind: "Warm Heatwave", icon: "🌡️", rain: false}
+        ];
+
+        window.startNewGameSequence = function() {
+            initAudioContext();
+            startBGMLoop();
+            playTone(523.25, 'triangle', 0.2, 0.1);
+
+            const menu = document.getElementById("main-menu-overlay");
+            menu.classList.add("opacity-0", "pointer-events-none");
+            
+            setTimeout(() => {
+                menu.style.display = "none";
+                triggerStoryCutsceneFirst(1, false);
+            }, 600);
+        };
+
+        window.returnToMainMenu = function() {
+            initAudioContext();
+            playTone(392, 'sine', 0.1, 0.05);
+            const menu = document.getElementById("main-menu-overlay");
+            menu.style.display = "flex";
+            setTimeout(() => {
+                menu.classList.remove("opacity-0", "pointer-events-none");
+            }, 50);
+        };
+
+        window.toggleMenuSettings = function() {
+            initAudioContext();
+            playTone(440, 'sine', 0.1, 0.05);
+            const modal = document.getElementById("settings-modal");
+            modal.classList.toggle("hidden");
+        };
+
+        let audioCtx = null;
+        let isAudioMuted = false;
+        let bgmTimer = null;
+        let noteIndex = 0;
+        let currentMusicStyle = "normal";
+
+        const calmMelody = [261.63, 293.66, 329.63, 392.00, 440.00, 523.25, 440.00, 392.00];
+        const levelUpMelody = [523.25, 659.25, 783.99, 1046.50, 880.00, 1046.50, 1174.66, 1318.51];
+
+        function initAudioContext() {
+            if (!audioCtx) {
+                const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                if (AudioContextClass) {
+                    audioCtx = new AudioContextClass();
+                }
+            }
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        function playTone(freq, type = 'sine', duration = 0.4, vol = 0.08) {
+            if (isAudioMuted) return;
+            initAudioContext();
+            if (!audioCtx) return;
+
+            try {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+
+                gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+
+                osc.start(audioCtx.currentTime);
+                osc.stop(audioCtx.currentTime + duration);
+            } catch (e) {
+                console.warn("Audio play error:", e);
+            }
+        }
+
+        function startBGMLoop() {
+            if (bgmTimer) clearInterval(bgmTimer);
+            bgmTimer = setInterval(() => {
+                if (isAudioMuted) return;
+                initAudioContext();
+                
+                const scale = (currentMusicStyle === "levelup") ? levelUpMelody : calmMelody;
+                const freq = scale[noteIndex % scale.length];
+                const waveType = (currentMusicStyle === "levelup") ? 'triangle' : 'sine';
+                
+                playTone(freq, waveType, 0.45, 0.05);
+                
+                if (noteIndex % 4 === 0) {
+                    const bassFreq = (currentMusicStyle === "levelup") ? 261.63 : 130.81;
+                    playTone(bassFreq, 'sine', 1.0, 0.04);
+                }
+                
+                noteIndex++;
+            }, 550);
+        }
+
+        window.toggleAudioBGM = function() {
+            initAudioContext();
+            isAudioMuted = !isAudioMuted;
+            
+            const btnText = document.getElementById("bgm-status-text");
+            const icon = document.getElementById("bgm-icon");
+            
+            if (isAudioMuted) {
+                if (btnText) btnText.innerText = "BGM Muted";
+                if (icon) {
+                    icon.setAttribute("data-lucide", "volume-x");
+                    icon.classList.replace("text-emerald-400", "text-red-400");
+                }
+            } else {
+                if (btnText) btnText.innerText = (currentMusicStyle === "levelup") ? "🎉 Level Up BGM" : "BGM On";
+                if (icon) {
+                    icon.setAttribute("data-lucide", "volume-2");
+                    icon.classList.replace("text-red-400", "text-emerald-400");
+                }
+                playTone(523.25, 'triangle', 0.3, 0.1);
+            }
+            if (window.lucide) lucide.createIcons();
+        };
+
+        function triggerLevelUpMusicChange() {
+            initAudioContext();
+            currentMusicStyle = "levelup";
+            
+            playTone(523.25, 'triangle', 0.2, 0.15);
+            setTimeout(() => playTone(659.25, 'triangle', 0.2, 0.15), 150);
+            setTimeout(() => playTone(783.99, 'triangle', 0.2, 0.15), 300);
+            setTimeout(() => playTone(1046.50, 'triangle', 0.6, 0.2), 450);
+
+            const btnText = document.getElementById("bgm-status-text");
+            if (btnText && !isAudioMuted) btnText.innerText = "🎉 Level Up BGM";
+
+            setTimeout(() => {
+                currentMusicStyle = "normal";
+                if (btnText && !isAudioMuted) btnText.innerText = "BGM On";
+            }, 12000);
+        }
+
+        function unlockGameFunctionality() {
+            if (isGameUnlocked) return;
+            isGameUnlocked = true;
+
+            resourcesState = {"water": 200, "seeds": 90, "solar": 110, "hope": 80, "coins": 999};
+
+            document.getElementById("resources-section").classList.remove("opacity-50", "pointer-events-none");
+            document.getElementById("climate-queue-panel").classList.remove("opacity-50", "pointer-events-none");
+            document.getElementById("stack-panel").classList.remove("opacity-50", "pointer-events-none");
+
+            document.getElementById("resource-lock-badge").className = "text-[10px] font-bold bg-emerald-950/80 text-emerald-400 border border-emerald-600/60 px-2 py-0.5 rounded";
+            document.getElementById("resource-lock-badge").innerText = "READY";
+
+            document.getElementById("grid-status-badge").className = "text-[10px] bg-emerald-950/80 text-emerald-400 border border-emerald-700/60 px-2 py-0.5 rounded uppercase font-bold";
+            document.getElementById("grid-status-badge").innerText = "3D Plot Unlocked";
+
+            document.getElementById("grid-sub-text").innerText = "Click 3D soil tiles to plant, water, or harvest crops. Drag or scroll to rotate and zoom camera.";
+            document.getElementById("prereq-banner").className = "bg-emerald-950/70 border border-emerald-600/60 p-3 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs";
+            document.getElementById("banner-status-text").innerHTML = "<strong>Status:</strong> Code verified! 3D sanctuary plot unlocked.";
+
+            const cropSelector = document.getElementById("crop-selector");
+            cropSelector.disabled = false;
+            cropSelector.classList.remove("disabled:opacity-50", "disabled:cursor-not-allowed");
+            refreshCropSelectorOptions();
+
+            const advBtn = document.getElementById("advance-day-btn");
+            advBtn.disabled = false;
+            advBtn.className = "mt-4 w-full bg-transparent hover:bg-emerald-900/30 text-emerald-300 border border-emerald-700 py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-all cursor-pointer";
+            advBtn.innerHTML = `<i data-lucide="play" class="w-4 h-4"></i> Advance Season Day`;
+
+            const undoBtn = document.getElementById("undo-btn");
+            undoBtn.disabled = false;
+            undoBtn.className = "mt-4 w-full bg-[#2a3825] hover:bg-[#34462e] text-emerald-200 py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2 border border-emerald-800 cursor-pointer";
+            undoBtn.innerHTML = `<i data-lucide="undo-2" class="w-4 h-4"></i> Undo Last Action`;
+
+            updateResources(resourcesState);
+            updateLevelProgress(0);
+            updateHierarchicalTreeUI();
+            if (window.lucide) lucide.createIcons();
+            pushAction("Prerequisite completed: 3D Sanctuary plot UNLOCKED!");
+        }
+
+        let isTypingText = false;
+        let typeTimeoutId = null;
+
+        const asciiAnimeFrames = {
+            1: [
+                "   .---------------------------------.  ",
+                "   | [JOJA GLOBAL CORP]  MONITOR #42 |  ",
+                "   | > STATUS: SOUL EXHAUSTED       |  ",
+                "   | (x_x)  [ Keyboard ] [ Coffee ] |  ",
+                "   '---------------------------------'  ",
+                "  ====================================== ",
+                "  [ Opening Grandpa's Sealed Letter... ] "
+            ].join("\n"),
+
+            2: [
+                "         ^  _     .---------------+---. ",
+                "        / \\| |    | OVERGROWN WEEDS   | ",
+                "       /___\\_|    | DRY SOIL & ROCKS  | ",
+                "      |  o  o |   |   [ 🍂 🪨 🥀 ]   | ",
+                "    ~~|_______|~~~'-------------------' ",
+                "      | [] [] |   ~~~~~~~~~~~~~~~~~~~~~ ",
+                "    =='-------'========================"
+            ].join("\n"),
+
+            3: [
+                "          (o.o)       (='.'=)           ",
+                "         <(   )>     <(  📜  )>         ",
+                "    -------\"-\"---------\"-\"------------- ",
+                "     [ Elder Iris ]  [ Joja Rep ]      ",
+                "    ---------------------------------- ",
+                "    \"Save Whispering Valley before Joja ",
+                "     turns our sanctuary into concrete!\" "
+            ].join("\n"),
+
+            4: [
+                "            .-----------------.         ",
+                "           /  FIRST BLOOM HARVEST \\     ",
+                "          |  [ 🌸 NATIVE FLOWER ]  |     ",
+                "          |  Town Hope: +15 Points |     ",
+                "           \\_________________/         ",
+                "  ------------------------------------- ",
+                "  * Local villagers cheer your efforts! *"
+            ].join("\n"),
+
+            5: [
+                "     .---------------------------------. ",
+                "     |  COMMUNITY CENTER TOWN ASSEMBLY | ",
+                "     |  \"Joja offered $10,000 buyout\"  | ",
+                "     |  FARMER: \"We choose restoration!\"| ",
+                "     '---------------------------------' "
+            ].join("\n"),
+
+            6: [
+                "         .---.        ___       .---.   ",
+                "        /     \\      /   \\     /     \\  ",
+                "       |  🌾🌾 |    | 🪻🪻 |   |  🌾🌾 | ",
+                "     __\\_______/____\\_____/___\\_______/_",
+                "     [ ANCIENT CROP GENETICS AWAKENED! ]"
+            ].join("\n"),
+
+            7: [
+                "        ~~~~~~~~~ MYSTIC WELL ~~~~~~~~~ ",
+                "            ( )  * Glimmering Dew *     ",
+                "           /|||\\  Ancient Springs Flow  ",
+                "          / ||| \\  Ecosystem Health 70%  ",
+                "  ======================================"
+            ].join("\n"),
+
+            8: [
+                "    [!] ALERT: JOJA SABOTEURS DETECTED! ",
+                "         (>_<)        (='.'=)           ",
+                "        /|   |\\      /|  🛡️ |\\          ",
+                "    ---\"----\"-------\"------\"----------- ",
+                "    Farmer & Iris defend the Soil Grid! "
+            ].join("\n"),
+
+            9: [
+                "     .----.     .----.     .----.       ",
+                "    ( 🌺  )   ( 🪷  )   ( 🌻  )      ",
+                "     `----'     `----'     `----'       ",
+                "       ||         ||         ||         ",
+                "   ^^^^||^^^^^^^^^||^^^^^^^^^||^^^^^^^  ",
+                "   [ Whispering Valley Festival Parade! ]"
+            ].join("\n"),
+
+            10: [
+                "               .-----.                  ",
+                "             .(       ).                ",
+                "            ( 🌳 TREE  )                ",
+                "             '( OF LIFE)'               ",
+                "               /  ||  \\                 ",
+                "    ^^^^^^^^^^/___||___\\^^^^^^^^^^^^^^  ",
+                "    [ JOJA PACKS UP! VALLEY SAVED! ]    "
+            ].join("\n")
+        };
+
+        const cutsceneStoryData = {
+            1: {
+                chapter: "LEVEL 1 • THE CORPORATE ESCAPE",
+                text: "Staring at Joja Global Corp's glowing monitor, your soul felt drained. But inside your coat pocket lay Grandpa's envelope: 'When life feels heavy, come to Whispering Valley. Restore the land.'"
+            },
+            2: {
+                chapter: "LEVEL 2 • ARRIVAL AT THE FARMSTEAD",
+                text: "The evening train drops you off at a foggy platform. Town Elder Iris welcomes you to Grandpa's overgrown plot: 'The soil is tired, but with water and love, these roots will bloom once more!'"
+            },
+            3: {
+                chapter: "LEVEL 3 • THE JOJA GLOBAL THREAT",
+                text: "A slick Joja Corp representative arrives with blueprints: 'This valley is prime real estate for a regional warehouse! Sell now or be bulldozed.' Iris looks at you: 'Only your farm harvests can save us!'"
+            },
+            4: {
+                chapter: "LEVEL 4 • REBUILDING TOWN HOPE",
+                text: "Your first blooms of Native Flowers and Wildflowers shine in the morning light! Villagers gather at your gate, amazed that life is returning to the dry soil."
+            },
+            5: {
+                chapter: "LEVEL 5 • THE COMMUNITY CENTER VOTE",
+                text: "At the emergency Town Hall meeting, Joja tries to buy out the town council. You step up and present your fresh harvests. The town unanimously votes to back your C.A.R.E. expedition!"
+            },
+            6: {
+                chapter: "LEVEL 6 • ANCIENT CROP GENETICS",
+                text: "Deep in the barn shed, you unlock Grandpa's old seed vault! Golden Wheat and rare Lavender sprout rapidly across your 3D soil grid, filling the valley with sweet fragrance."
+            },
+            7: {
+                chapter: "LEVEL 7 • THE MYSTIC MOUNTAIN SPRING",
+                text: "Water begins flowing again from the ancient mountain spring! The valley's ecosystem health jumps past 70%, attracting rare butterflies and glowing sun-flowers."
+            },
+            8: {
+                chapter: "LEVEL 8 • DEFENDING THE SANCTUARY",
+                text: "Joja Corp sends heavy machinery late at night to disrupt your water lines, but the community rallies together! Armed with hope and well water, you defend the farmstead."
+            },
+            9: {
+                chapter: "LEVEL 9 • THE CELESTIAL LOTUS FESTIVAL",
+                text: "Your farm yields the legendary Celestial Lotus! Whispering Valley hosts its first Annual Harvest Festival in over twenty years, celebrating your incredible dedication."
+            },
+            10: {
+                chapter: "LEVEL 10 • THE TREE OF LIFE & PERMANENT VICTORY",
+                text: "You plant the mythical Tree of Life at the center of your sanctuary! Joja Global cancels its warehouse plans and pulls out forever. Whispering Valley is saved and restored for generations!"
+            }
+        };
+
+        function showLevelCompleteBanner(completedLevel) {
+            initAudioContext();
+            playTone(783.99, 'triangle', 0.25, 0.15);
+
+            document.getElementById("level-complete-title").innerText = `LEVEL ${completedLevel - 1} COMPLETE!`;
+            document.getElementById("level-complete-subtitle").innerText = `You have reached Farm Level ${completedLevel}! Whispering Valley is flourishing!`;
+            
+            const modal = document.getElementById("level-complete-modal");
+            modal.classList.remove("hidden");
+        }
+
+        window.proceedFromLevelComplete = function() {
+            initAudioContext();
+            playTone(523.25, 'sine', 0.15, 0.05);
+            document.getElementById("level-complete-modal").classList.add("hidden");
+            triggerStoryCutsceneFirst(currentLevel, true);
+        };
+
+        function triggerStoryCutsceneFirst(lvl, hasRewardToClaim = true) {
+            pendingRewardLevel = hasRewardToClaim ? lvl : null;
+
+            const cutscene = document.getElementById("cutscene-overlay");
+            cutscene.classList.remove("hidden", "opacity-0", "pointer-events-none");
+            cutscene.style.display = "flex";
+
+            const levelNum = Math.min(10, Math.max(1, lvl));
+            const data = cutsceneStoryData[levelNum] || cutsceneStoryData[1];
+
+            document.getElementById("cutscene-chapter-tag").innerText = data.chapter;
+            document.getElementById("cutscene-progress").innerText = `Farm Chapter: Level ${levelNum} of 10`;
+
+            const asciiEl = document.getElementById("ascii-canvas");
+            if (asciiEl) {
+                asciiEl.innerText = asciiAnimeFrames[levelNum] || asciiAnimeFrames[1];
+            }
+
+            const textEl = document.getElementById("cutscene-text");
+            textEl.innerHTML = "";
+            
+            if (typeTimeoutId) clearTimeout(typeTimeoutId);
+            isTypingText = true;
+
+            let charIdx = 0;
+            function typeNextChar() {
+                if (charIdx < data.text.length) {
+                    textEl.innerHTML += data.text.charAt(charIdx);
+                    charIdx++;
+                    typeTimeoutId = setTimeout(typeNextChar, 18);
+                } else {
+                    isTypingText = false;
+                }
+            }
+            typeNextChar();
+
+            const nextBtn = document.getElementById("cutscene-next-btn");
+            if (hasRewardToClaim) {
+                nextBtn.innerHTML = `<span>CLAIM EARNED REWARDS</span> <i data-lucide="gift" class="w-4 h-4"></i>`;
+            } else {
+                nextBtn.innerHTML = `<span>START FARMING</span> <i data-lucide="arrow-right" class="w-4 h-4"></i>`;
+            }
+            if (window.lucide) lucide.createIcons();
+        }
+
+        window.finishCutsceneAndContinue = function() {
+            initAudioContext();
+            startBGMLoop();
+            playTone(659.25, 'triangle', 0.2, 0.1);
+
+            const overlay = document.getElementById("cutscene-overlay");
+            if (overlay) {
+                overlay.classList.add("opacity-0", "pointer-events-none");
+                setTimeout(() => {
+                    overlay.style.display = "none";
+                    if (pendingRewardLevel !== null) {
+                        showItemRewardModal(pendingRewardLevel);
+                        pendingRewardLevel = null;
+                    }
+                }, 500);
+            }
+        };
+
+        function showItemRewardModal(level) {
+            const reward = levelRewardsList[level] || { coins: 100, water: 50, seeds: 20, hope: 20, unlocked: "New Rare Species" };
+            
+            resourcesState.coins += reward.coins;
+            resourcesState.water = Math.min(200, resourcesState.water + reward.water);
+            resourcesState.seeds = Math.min(100, resourcesState.seeds + reward.seeds);
+            resourcesState.hope = Math.min(100, resourcesState.hope + reward.hope);
+            updateResources(resourcesState);
+
+            document.getElementById("reward-modal-title").innerText = `LEVEL ${level} REWARD EARNED!`;
+            const container = document.getElementById("reward-items-container");
+            container.innerHTML = `
+                <div class="flex items-center gap-1.5"><span class="text-amber-300">🪙 Gold Coins:</span> +${reward.coins}</div>
+                <div class="flex items-center gap-1.5"><span class="text-blue-300">💧 Well Water:</span> +${reward.water} L</div>
+                <div class="flex items-center gap-1.5"><span class="text-emerald-300">🌱 Seed Bag:</span> +${reward.seeds}</div>
+                <div class="flex items-center gap-1.5"><span class="text-rose-300">💗 Town Hope:</span> +${reward.hope}</div>
+                <div class="col-span-2 pt-2 border-t border-emerald-900 text-amber-300 font-bold">✨ Unlocked: ${reward.unlocked}</div>
+            `;
+
+            const modal = document.getElementById("reward-modal");
+            modal.classList.remove("hidden");
+        }
+
+        window.closeRewardModal = function() {
+            initAudioContext();
+            playTone(523.25, 'sine', 0.15, 0.05);
+            document.getElementById("reward-modal").classList.add("hidden");
+        };
+
+        let scene, camera, renderer, raycaster, mouse;
+        let tileMeshes = [];
+        let plantMeshes = new Array(25).fill(null);
+        let cameraAngle = Math.PI / 4;
+        let cameraDistance = 14.0;
+        let rainParticles, rainGeo;
+
+        function init3DEngine() {
+            const container = document.getElementById("canvas-container");
+            if (!container || !window.THREE) return;
+            const width = container.clientWidth || 800;
+            const height = container.clientHeight || 720;
+
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a2b18);
+            scene.fog = new THREE.FogExp2(0x1a2b18, 0.015);
+
+            camera = new THREE.PerspectiveCamera(48, width / height, 0.1, 1000);
+            updateCameraPosition();
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(width, height);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            const ambientLight = new THREE.AmbientLight(0xe2f0d9, 0.9);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xfffaed, 1.1);
+            dirLight.position.set(12, 22, 12);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 1024;
+            dirLight.shadow.mapSize.height = 1024;
+            scene.add(dirLight);
+
+            const grassGeo = new THREE.PlaneGeometry(80, 80);
+            const grassMat = new THREE.MeshStandardMaterial({ color: 0x1e331b, roughness: 0.9 });
+            const grassPlane = new THREE.Mesh(grassGeo, grassMat);
+            grassPlane.rotation.x = -Math.PI / 2;
+            grassPlane.position.y = -0.32;
+            grassPlane.receiveShadow = true;
+            scene.add(grassPlane);
+
+            const fenceMat = new THREE.MeshStandardMaterial({ color: 0x5c4028, roughness: 0.8 });
+            for (let i = -6; i <= 6; i += 2.4) {
+                const post1 = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.8, 0.2), fenceMat);
+                post1.position.set(i, 0.1, -6.2);
+                scene.add(post1);
+
+                const post2 = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.8, 0.2), fenceMat);
+                post2.position.set(i, 0.1, 6.2);
+                scene.add(post2);
+            }
+
+            const mtnGeo = new THREE.ConeGeometry(8, 12, 4);
+            const mtnMat = new THREE.MeshStandardMaterial({ color: 0x112110, roughness: 1.0 });
+            for (let i = -3; i <= 3; i++) {
+                const mtn = new THREE.Mesh(mtnGeo, mtnMat);
+                mtn.position.set(i * 12, 3, -30);
+                scene.add(mtn);
+            }
+
+            const gridGroup = new THREE.Group();
+            const tileGeo = new THREE.BoxGeometry(1.9, 0.45, 1.9);
+            
+            for (let r = 0; r < 5; r++) {
+                for (let c = 0; c < 5; c++) {
+                    const tileMat = new THREE.MeshStandardMaterial({
+                        color: 0x3a2b1c,
+                        roughness: 0.9,
+                        metalness: 0.1
+                    });
+                    const tile = new THREE.Mesh(tileGeo, tileMat);
+                    const posX = (c - 2) * 2.2;
+                    const posZ = (r - 2) * 2.2;
+                    tile.position.set(posX, 0, posZ);
+                    tile.receiveShadow = true;
+                    tile.userData = { index: r * 5 + c, row: r, col: c };
+                    
+                    gridGroup.add(tile);
+                    tileMeshes.push(tile);
+                }
+            }
+            scene.add(gridGroup);
+
+            const baseGeo = new THREE.BoxGeometry(12.5, 0.35, 12.5);
+            const baseMat = new THREE.MeshStandardMaterial({ color: 0x2d3e2a, roughness: 0.8 });
+            const baseMesh = new THREE.Mesh(baseGeo, baseMat);
+            baseMesh.position.set(0, -0.3, 0);
+            scene.add(baseMesh);
+
+            const count = 400;
+            rainGeo = new THREE.BufferGeometry();
+            const positions = new Float32Array(count * 3);
+            for (let i = 0; i < count * 3; i += 3) {
+                positions[i] = (Math.random() - 0.5) * 30;
+                positions[i + 1] = Math.random() * 20;
+                positions[i + 2] = (Math.random() - 0.5) * 30;
+            }
+            rainGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            const rainMat = new THREE.PointsMaterial({ color: 0x88ccff, size: 0.12, transparent: true, opacity: 0.6 });
+            rainParticles = new THREE.Points(rainGeo, rainMat);
+            rainParticles.visible = false;
+            scene.add(rainParticles);
+
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+
+            container.addEventListener('mousemove', onMouseMove, false);
+            container.addEventListener('click', on3DTileClick, false);
+            container.addEventListener('wheel', onMouseWheelZoom, { passive: false });
+            window.addEventListener('resize', onWindowResize, false);
+
+            animate3D();
+        }
+
+        function updateCameraPosition() {
+            if (!camera) return;
+            camera.position.x = Math.sin(cameraAngle) * cameraDistance;
+            camera.position.z = Math.cos(cameraAngle) * cameraDistance;
+            camera.position.y = cameraDistance * 0.72;
+            camera.lookAt(0, 0, 0);
+        }
+
+        window.zoom3DCamera = function(delta) {
+            initAudioContext();
+            playTone(392, 'sine', 0.08, 0.03);
+            cameraDistance = Math.max(6.0, Math.min(22.0, cameraDistance + delta));
+            updateCameraPosition();
+        };
+
+        function onMouseWheelZoom(e) {
+            e.preventDefault();
+            const delta = e.deltaY > 0 ? 1.0 : -1.0;
+            cameraDistance = Math.max(6.0, Math.min(22.0, cameraDistance + delta));
+            updateCameraPosition();
+        }
+
+        window.rotate3DCamera = function(delta) {
+            initAudioContext();
+            playTone(330, 'sine', 0.1, 0.03);
+            cameraAngle += delta;
+            updateCameraPosition();
+        };
+
+        window.reset3DCamera = function() {
+            initAudioContext();
+            playTone(392, 'sine', 0.1, 0.03);
+            cameraAngle = Math.PI / 4;
+            cameraDistance = 14.0;
+            updateCameraPosition();
+        };
+
+        function onMouseMove(event) {
+            if (!renderer || !camera) return;
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(tileMeshes);
+
+            const hoverInfo = document.getElementById("hover-tile-info");
+
+            tileMeshes.forEach(t => {
+                if (t.userData.isHovered) {
+                    t.userData.isHovered = false;
+                    t.material.color.setHex(t.userData.isDry ? 0x6b4f2c : 0x3a2b1c);
+                }
+            });
+
+            if (intersects.length > 0) {
+                const hovered = intersects[0].object;
+                hovered.userData.isHovered = true;
+                hovered.material.color.setHex(0x5c7a4b);
+                const idx = hovered.userData.index;
+                const item = gardenGridState[idx];
+                if (!isGameUnlocked) {
+                    hoverInfo.innerText = `Tile [${hovered.userData.row}][${hovered.userData.col}]: 🔒 LOCKED (Run Topics in Code Lab)`;
+                } else if (item) {
+                    const parts = item.split("|");
+                    const cropName = parts[0] || "Unknown Plant";
+                    const stage = parts[2] || "seed";
+                    const days = parts[3] || "0";
+                    hoverInfo.innerText = `Soil Tile [${hovered.userData.row}][${hovered.userData.col}]: ${cropName} (${stage}, Day ${days}/10)`;
+                } else {
+                    hoverInfo.innerText = `Soil Tile [${hovered.userData.row}][${hovered.userData.col}]: Fertile Soil (Ready to Plant)`;
+                }
+            } else {
+                hoverInfo.innerText = `Hover over a 3D tile... (Scroll wheel to zoom)`;
+            }
+        }
+
+        function on3DTileClick() {
+            if (!raycaster || !camera) return;
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(tileMeshes);
+            if (intersects.length > 0) {
+                const clickedTile = intersects[0].object;
+                onTileClick(clickedTile.userData.index);
+            }
+        }
+
+        function animate3D() {
+            requestAnimationFrame(animate3D);
+
+            plantMeshes.forEach((mesh, idx) => {
+                if (mesh) {
+                    mesh.rotation.y += 0.01;
+                    const item = gardenGridState[idx];
+                    if (item && item.includes("|bloom|")) {
+                        mesh.position.y = 0.35 + Math.sin(Date.now() * 0.005) * 0.15;
+                    }
+                }
+            });
+
+            if (rainParticles && isCurrentlyRaining) {
+                rainParticles.visible = true;
+                const positions = rainGeo.attributes.position.array;
+                for (let i = 1; i < positions.length; i += 3) {
+                    positions[i] -= 0.35;
+                    if (positions[i] < 0) positions[i] = 20;
+                }
+                rainGeo.attributes.position.needsUpdate = true;
+            } else if (rainParticles) {
+                rainParticles.visible = false;
+            }
+
+            if (renderer && scene && camera) {
+                renderer.render(scene, camera);
+            }
+        }
+
+        function update3DCropsMesh(pos, species, stage, dry) {
+            if (plantMeshes[pos]) {
+                scene.remove(plantMeshes[pos]);
+                plantMeshes[pos] = null;
+            }
+
+            const tile = tileMeshes[pos];
+            if (!tile) return;
+
+            if (dry) {
+                tile.userData.isDry = true;
+                tile.material.color.setHex(0x6b4f2c);
+            } else {
+                tile.userData.isDry = false;
+                tile.material.color.setHex(0x3a2b1c);
+            }
+
+            if (!species || stage === null) return;
+
+            const cropGroup = new THREE.Group();
+            cropGroup.position.set(tile.position.x, 0.2, tile.position.z);
+
+            const meta = plantMasterRegistry[species] || { color: 0x32cd32 };
+
+            if (stage === "seed") {
+                const seedGeo = new THREE.SphereGeometry(0.24, 10, 10);
+                const seedMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b });
+                const seedMesh = new THREE.Mesh(seedGeo, seedMat);
+                seedMesh.position.y = 0.12;
+                cropGroup.add(seedMesh);
+            } else if (stage === "sprout") {
+                const stemGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.7, 8);
+                const stemMat = new THREE.MeshStandardMaterial({ color: 0x4caf50 });
+                const stem = new THREE.Mesh(stemGeo, stemMat);
+                stem.position.y = 0.35;
+                cropGroup.add(stem);
+
+                const leafGeo = new THREE.ConeGeometry(0.25, 0.35, 5);
+                const leafMat = new THREE.MeshStandardMaterial({ color: 0x81c784 });
+                const leaf1 = new THREE.Mesh(leafGeo, leafMat);
+                leaf1.position.set(0.12, 0.6, 0);
+                leaf1.rotation.z = -0.5;
+                cropGroup.add(leaf1);
+            } else if (stage === "bloom") {
+                const stemGeo = new THREE.CylinderGeometry(0.07, 0.07, 0.9, 8);
+                const stemMat = new THREE.MeshStandardMaterial({ color: 0x2e7d32 });
+                const stem = new THREE.Mesh(stemGeo, stemMat);
+                stem.position.y = 0.45;
+                cropGroup.add(stem);
+
+                const flowerGeo = new THREE.DodecahedronGeometry(0.42);
+                const flowerMat = new THREE.MeshStandardMaterial({ color: meta.color, roughness: 0.3 });
+                const flower = new THREE.Mesh(flowerGeo, flowerMat);
+                flower.position.y = 1.05;
+                flower.castShadow = true;
+                cropGroup.add(flower);
+            } else if (stage === "rotten") {
+                const stemGeo = new THREE.CylinderGeometry(0.05, 0.05, 0.5, 8);
+                const stemMat = new THREE.MeshStandardMaterial({ color: 0x3e2723 });
+                const stem = new THREE.Mesh(stemGeo, stemMat);
+                stem.position.y = 0.25;
+                stem.rotation.z = 0.4;
+                cropGroup.add(stem);
+            }
+
+            scene.add(cropGroup);
+            plantMeshes[pos] = cropGroup;
+        }
+
+        function onWindowResize() {
+            const container = document.getElementById("canvas-container");
+            if (!container || !renderer || !camera) return;
+            const width = container.clientWidth || 800;
+            const height = container.clientHeight || 720;
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+            renderer.setSize(width, height);
+        }
+
+        const topicTemplates = {
+            1: {
+                title: "Topic 1: Plant OOP & Action History Stack",
+                code: `# Topic 1: Plant OOP Class & Action History Stack (with Rotting Lifecycle)
+class Plant:
+    def __init__(self, name, water_cost, hope_value):
+        self.name = name
+        self.water_cost = water_cost
+        self.hope_value = hope_value
+        self.stage = "seed"
+        self.days_growing = 0
+        self.days_in_bloom = 0
+
+    def grow_day(self):
+        if self.stage == "rotten":
+            return
+            
+        if self.stage == "bloom":
+            self.days_in_bloom += 1
+            if self.days_in_bloom >= 3:
+                self.stage = "rotten"
+        else:
+            self.days_growing += 1
+            if self.days_growing >= 10:
+                self.stage = "bloom"
+                self.days_in_bloom = 0
+            elif self.days_growing >= 4:
+                self.stage = "sprout"
+
+class ActionHistoryStack:
+    def __init__(self):
+        self._stack = []
+
+    def push(self, action: dict):
+        self._stack.append(action)
+
+    def pop(self):
+        return self._stack.pop() if self._stack else None
+
+history = ActionHistoryStack()
+flower = Plant("Native Flower", 5, 8)
+history.push({"label": "Planted Native Flower", "plant": flower})
+print("Topic 1: OOP Plant Class with Rotting Lifecycle & Stack initialized.")
+`
+            },
+            2: {
+                title: "Topic 2: Weather FIFO Event Queue",
+                code: `# Topic 2: Weather FIFO Event Queue
+from collections import deque
+
+class ClimateEvent:
+    def __init__(self, kind, water_delta=0, hope_delta=0):
+        self.kind = kind
+        self.water_delta = water_delta
+        self.hope_delta = hope_delta
+
+class ClimateFIFOQueue:
+    def __init__(self):
+        self._queue = deque()
+
+    def schedule(self, event):
+        self._queue.append(event)
+
+    def process_next(self):
+        if self._queue:
+            return self._queue.popleft()
+        return None
+
+cq = ClimateFIFOQueue()
+cq.schedule(ClimateEvent("Rainstorm", water_delta=50))
+cq.schedule(ClimateEvent("Sunny Day", water_delta=-10))
+print("Topic 2: FIFO Weather Queue online.")
+`
+            },
+            3: {
+                title: "Topic 3: 2D Soil Grid Coordinate System",
+                code: `# Topic 3: 2D Soil Grid Coordinate System
+GRID_SIZE = 5
+
+def create_garden_grid(size=GRID_SIZE):
+    return [[None for _ in range(size)] for _ in range(size)]
+
+def plant_at(grid, row, col, species_name):
+    if 0 <= row < len(grid) and 0 <= col < len(grid[0]):
+        if grid[row][col] is None:
+            grid[row][col] = species_name
+            return True
+    return False
+
+garden_2d_grid = create_garden_grid()
+plant_at(garden_2d_grid, 0, 0, "Native Flower")
+plant_at(garden_2d_grid, 1, 2, "Clover")
+print("Topic 3: 2D Grid Array & Coordinate Mapper initialized.")
+`
+            },
+            4: {
+                title: "Topic 4: Plant Ecosystem Tree",
+                code: `# Topic 4: Plant Ecosystem Hierarchy Tree
+class SpeciesNode:
+    def __init__(self, name, min_level):
+        self.name = name
+        self.min_level = min_level
+        self.children = []
+
+    def add_child(self, child_node):
+        self.children.append(child_node)
+        return child_node
+
+root = SpeciesNode("Care a Garden Ecosystem", 1)
+grasses = root.add_child(SpeciesNode("Ground Cover", 1))
+grasses.add_child(SpeciesNode("Clover", 1))
+grasses.add_child(SpeciesNode("Drought-Tolerant Shrub", 3))
+
+flowers = root.add_child(SpeciesNode("Flowering Plants", 1))
+flowers.add_child(SpeciesNode("Rose", 2))
+flowers.add_child(SpeciesNode("Sunflower", 7))
+
+print("Topic 4: Species Hierarchy Tree & Tree Traversals compiled.")
+`
+            },
+            5: {
+                title: "Topic 5: Binary Search Tree Crop Catalog",
+                code: `# Topic 5: Binary Search Tree (BST) Crop Catalog
+class CropBSTNode:
+    def __init__(self, species, cost):
+        self.species = species
+        self.cost = cost
+        self.left = None
+        self.right = None
+
+class GardenCropBST:
+    def __init__(self):
+        self.root = None
+
+    def insert(self, species, cost):
+        if not self.root:
+            self.root = CropBSTNode(species, cost)
+        else:
+            self._insert(self.root, species, cost)
+
+    def _insert(self, node, species, cost):
+        if cost < node.cost:
+            if not node.left:
+                node.left = CropBSTNode(species, cost)
+            else:
+                self._insert(node.left, species, cost)
+        else:
+            if not node.right:
+                node.right = CropBSTNode(species, cost)
+            else:
+                self._insert(node.right, species, cost)
+
+bst = GardenCropBST()
+for sp, cost in [("Native Flower", 5), ("Rose", 10), ("Sunflower", 22), ("Clover", 6)]:
+    bst.insert(sp, cost)
+
+print("Topic 5: Binary Search Tree (BST) crop catalog initialized.")
+`
+            },
+            6: {
+                title: "Topic 6: Plant Metadata Hash Table",
+                code: `# Topic 6: Plant Metadata Hash Table
+class PlantHashTable:
+    def __init__(self, size=8):
+        self.size = size
+        self.table = [[] for _ in range(size)]
+
+    def _hash(self, key):
+        return sum(ord(c) for c in key) % self.size
+
+    def insert(self, key, value):
+        idx = self._hash(key)
+        for kv in self.table[idx]:
+            if kv[0] == key:
+                kv[1] = value
+                return
+        self.table[idx].append([key, value])
+
+    def get(self, key):
+        idx = self._hash(key)
+        for kv in self.table[idx]:
+            if kv[0] == key:
+                return kv[1]
+        return None
+
+ht = PlantHashTable()
+ht.insert("Rose", {"cost": 10, "xp": 15})
+ht.insert("Lotus", {"cost": 26, "xp": 42})
+print("Topic 6: O(1) Hash Table Plant Registry ready.")
+`
+            },
+            7: {
+                title: "Topic 7: Spatial Plot Graph Network",
+                code: `# Topic 7: Spatial Plot Connectivity Graph
+class SoilGraph:
+    def __init__(self):
+        self.adj_list = {}
+
+    def add_plot(self, plot_id):
+        if plot_id not in self.adj_list:
+            self.adj_list[plot_id] = []
+
+    def connect_plots(self, p1, p2):
+        self.add_plot(p1)
+        self.add_plot(p2)
+        self.adj_list[p1].append(p2)
+        self.adj_list[p2].append(p1)
+
+g = SoilGraph()
+for r in range(5):
+    for c in range(5):
+        pos = r * 5 + c
+        if c < 4: g.connect_plots(f"P{pos}", f"P{pos+1}")
+        if r < 4: g.connect_plots(f"P{pos}", f"P{pos+5}")
+
+print("Topic 7: 5x5 Spatial Plot Graph & Adjacency Map built.")
+`
+            },
+            8: {
+                title: "Topic 8: QuickSort Crop XP Sorter",
+                code: `# Topic 8: QuickSort Crop XP Sorter
+def quicksort_crops(crops):
+    if len(crops) <= 1:
+        return crops
+    pivot = crops[len(crops) // 2]
+    left = [x for x in crops if x[1] < pivot[1]]
+    middle = [x for x in crops if x[1] == pivot[1]]
+    right = [x for x in crops if x[1] > pivot[1]]
+    return quicksort_crops(left) + middle + quicksort_crops(right)
+
+crop_list = [("Lotus", 42), ("Clover", 10), ("Sunflower", 35), ("Rose", 15)]
+sorted_crops = quicksort_crops(crop_list)
+print(f"Topic 8: QuickSort executed. Sorted by XP yield -> {sorted_crops}")
+`
+            },
+            9: {
+                title: "Topic 9: Binary Search Catalog Query",
+                code: `# Topic 9: Binary Search Catalog Query
+def binary_search_catalog(sorted_catalog, target_cost):
+    low, high = 0, len(sorted_catalog) - 1
+    while low <= high:
+        mid = (low + high) // 2
+        if sorted_catalog[mid][1] == target_cost:
+            return sorted_catalog[mid]
+        elif sorted_catalog[mid][1] < target_cost:
+            low = mid + 1
+        else:
+            high = mid - 1
+    return None
+
+catalog = [("Native Flower", 5), ("Clover", 6), ("Rose", 10), ("Sunflower", 22)]
+found = binary_search_catalog(catalog, 10)
+print(f"Topic 9: Binary Search query found match -> {found}")
+`
+            },
+            10: {
+                title: "Topic 10: Dijkstra's Water Pipe Router",
+                code: `# Topic 10: Dijkstra's Optimal Water Pipe Path
+import heapq
+
+def dijkstra_irrigation(graph, start_node):
+    distances = {node: float('inf') for node in graph}
+    distances[start_node] = 0
+    pq = [(0, start_node)]
+
+    while pq:
+        curr_dist, curr_node = heapq.heappop(pq)
+        if curr_dist > distances[curr_node]:
+            continue
+        for neighbor, weight in graph[curr_node].items():
+            dist = curr_dist + weight
+            if dist < distances[neighbor]:
+                distances[neighbor] = dist
+                heapq.heappush(pq, (dist, neighbor))
+    return distances
+
+pipe_network = {
+    'Pump': {'ValveA': 2, 'ValveB': 4},
+    'ValveA': {'Pump': 2, 'Plot1': 1, 'Plot2': 3},
+    'ValveB': {'Pump': 4, 'Plot3': 2},
+    'Plot1': {'ValveA': 1},
+    'Plot2': {'ValveA': 3},
+    'Plot3': {'ValveB': 2}
+}
+
+routes = dijkstra_irrigation(pipe_network, 'Pump')
+print(f"Topic 10: Dijkstra optimal water pipe distances -> {routes}")
+`
+            },
+            11: {
+                title: "Topic 11: Dynamic Programming Seed Capacity",
+                code: `# Topic 11: Dynamic Programming Seed Pouch Capacity
+def knapsack_max_hope(weights, hope_values, capacity):
+    n = len(hope_values)
+    dp = [[0 for _ in range(capacity + 1)] for _ in range(n + 1)]
+
+    for i in range(1, n + 1):
+        for w in range(1, capacity + 1):
+            if weights[i-1] <= w:
+                dp[i][w] = max(hope_values[i-1] + dp[i-1][w-weights[i-1]], dp[i-1][w])
+            else:
+                dp[i][w] = dp[i-1][w]
+    return dp[n][capacity]
+
+seed_weights = [2, 3, 4, 5]
+hope_yields = [8, 10, 14, 20]
+pouch_capacity = 7
+
+max_hope = knapsack_max_hope(seed_weights, hope_yields, pouch_capacity)
+print(f"Topic 11: Dynamic Programming calculated max hope output -> {max_hope}")
+`
+            },
+            12: {
+                title: "Topic 12: Seed Vault Inventory System",
+                code: `# Topic 12: Seed Vault Inventory System
+class SeedBankVault:
+    def __init__(self, max_capacity=100):
+        self.max_capacity = max_capacity
+        self.vault = {}
+
+    def store_seeds(self, species, count):
+        current_total = sum(self.vault.values())
+        allocatable = min(count, self.max_capacity - current_total)
+        self.vault[species] = self.vault.get(species, 0) + allocatable
+        return allocatable
+
+    def get_inventory(self):
+        return self.vault
+
+vault = SeedBankVault(max_capacity=100)
+vault.store_seeds("Native Flower", 30)
+vault.store_seeds("Rose", 20)
+vault.store_seeds("Lotus", 15)
+
+print(f"Topic 12: Seed Bank Vault online. Inventory -> {vault.get_inventory()}")
+`
+            }
+        };
+
+        const jsSimOutputs = {
+            1: "Topic 1: OOP Plant Class with Rotting Lifecycle & Stack initialized.",
+            2: "Topic 2: FIFO Weather Queue online.",
+            3: "Topic 3: 2D Grid Array & Coordinate Mapper initialized.",
+            4: "Topic 4: Species Hierarchy Tree & Tree Traversals compiled.",
+            5: "Topic 5: Binary Search Tree (BST) crop catalog initialized.",
+            6: "Topic 6: O(1) Hash Table Plant Registry ready.",
+            7: "Topic 7: 5x5 Spatial Plot Graph & Adjacency Map built.",
+            8: "Topic 8: QuickSort executed. Sorted by XP yield -> [('Clover', 10), ('Rose', 15), ('Sunflower', 35), ('Lotus', 42)]",
+            9: "Topic 9: Binary Search query found match -> ('Rose', 10)",
+            10: "Topic 10: Dijkstra optimal water pipe distances -> {'Pump': 0, 'ValveA': 2, 'ValveB': 4, 'Plot1': 3, 'Plot2': 5, 'Plot3': 6}",
+            11: "Topic 11: Dynamic Programming calculated max hope output -> 28",
+            12: "Topic 12: Seed Bank Vault online. Inventory -> {'Native Flower': 30, 'Rose': 20, 'Lotus': 15}"
+        };
+
+        async function initPyodideEngine() {
+            if (pyodideInstance) return true;
+            if (window.pyodideCdnFailed || typeof loadPyodide === "undefined" || location.protocol === "file:") {
+                return false;
+            }
+
+            try {
+                pyodideInstance = await loadPyodide();
+                pyodideInstance.globals.set("addPlantToGrid", addPlantToGrid);
+                pyodideInstance.globals.set("updateResources", updateResources);
+                pyodideInstance.globals.set("pushAction", pushAction);
+                pyodideInstance.globals.set("updateClimateQueue", updateClimateQueue);
+                pyodideInstance.globals.set("removePlantFromGrid", removePlantFromGrid);
+                pyodideInstance.globals.set("updateDay", updateDay);
+
+                await pyodideInstance.runPythonAsync(`
+import sys
+from js import document
+
+class Console:
+    def write(self, text):
+        if text and text.strip():
+            el = document.getElementById("output-console")
+            if el: el.innerHTML += text.replace("\\n", "<br>")
+    def flush(self): pass
+
+sys.stdout = Console()
+`);
+                return true;
+            } catch (err) {
+                console.warn("Pyodide WASM blocked or failed. Using JS Simulator Mode.");
+                return false;
+            }
+        }
+
+        window.runPythonCode = async function() {
+            initAudioContext();
+            playTone(523.25, 'triangle', 0.2, 0.08);
+
+            const consoleEl = document.getElementById("output-console");
+            consoleEl.innerHTML = `<span class="text-amber-400">Running selected topic...</span><br>`;
+            
+            const key = document.getElementById("topic-selector").value;
+            const isPyReady = await initPyodideEngine();
+
+            if (isPyReady && pyodideInstance) {
+                try {
+                    const code = document.getElementById("code-editor").value.trim();
+                    await pyodideInstance.runPythonAsync(code);
+                } catch (err) {
+                    consoleEl.innerHTML += `<span class="text-red-400">Error: ${err.message}</span><br>`;
+                }
+            } else {
+                consoleEl.innerHTML += `<span class="text-emerald-400">${jsSimOutputs[key] || "Topic executed successfully."}</span><br>`;
+            }
+
+            unlockGameFunctionality();
+        };
+
+        window.runAllTopicsSequentially = async function() {
+            initAudioContext();
+            playTone(659.25, 'triangle', 0.25, 0.1);
+
+            switchTab('code');
+            const consoleEl = document.getElementById("output-console");
+            consoleEl.innerHTML = `<span class="text-amber-400">Initializing execution sequence...</span><br>`;
+            
+            const isPyReady = await initPyodideEngine();
+            const keys = Object.keys(topicTemplates);
+
+            for (let i = 0; i < keys.length; i++) {
+                const key = keys[i];
+                const topic = topicTemplates[key];
+                document.getElementById("topic-selector").value = key;
+                document.getElementById("code-editor").value = topic.code;
+                
+                consoleEl.innerHTML += `<span class="text-emerald-400 font-bold">▶ Running Topic ${key}: ${topic.title}</span><br>`;
+                
+                if (isPyReady && pyodideInstance) {
+                    try {
+                        await pyodideInstance.runPythonAsync(topic.code);
+                    } catch (err) {
+                        consoleEl.innerHTML += `<span class="text-red-400">Error: ${err.message}</span><br>`;
+                    }
+                } else {
+                    consoleEl.innerHTML += `<span class="text-emerald-300">${jsSimOutputs[key]}</span><br>`;
+                }
+
+                consoleEl.innerHTML += `<span class="text-gray-400">----------------------------------------</span><br>`;
+            }
+
+            consoleEl.innerHTML += `<span class="text-emerald-300 font-bold">✓ All topics executed successfully! 3D Farm Plot Unlocked.</span><br>`;
+            unlockGameFunctionality();
+            showToast("All topics executed! 3D Farm plot unlocked.");
+        };
+
+        window.loadTopic = function() {
+            const key = document.getElementById("topic-selector").value;
+            if (topicTemplates[key]) {
+                document.getElementById("code-editor").value = topicTemplates[key].code;
+            }
+        };
+
+        function refreshCropSelectorOptions() {
+            const select = document.getElementById("crop-selector");
+            select.innerHTML = "";
+            Object.keys(plantMasterRegistry).forEach(name => {
+                const crop = plantMasterRegistry[name];
+                const option = document.createElement("option");
+                option.value = name;
+                if (currentLevel >= crop.minLevel) {
+                    option.textContent = `${crop.emoji} ${name} (${crop.cost} gold)`;
+                } else {
+                    option.textContent = `🔒 ${name} (Requires Lvl ${crop.minLevel})`;
+                    option.disabled = true;
+                }
+                select.appendChild(option);
+            });
+        }
+
+        function addXP(amount) {
+            currentXP += amount;
+            const targetXP = xpRequirements[currentLevel] || (currentLevel * 150);
+
+            if (currentXP >= targetXP && currentLevel < 10) {
+                currentXP -= targetXP;
+                currentLevel++;
+                document.getElementById("level-counter").innerText = currentLevel;
+                
+                pushAction(`⭐ Level Up! Reached Farm Level ${currentLevel}`);
+                triggerLevelUpMusicChange();
+                refreshCropSelectorOptions();
+                updateHierarchicalTreeUI();
+
+                showLevelCompleteBanner(currentLevel);
+            }
+
+            updateLevelProgress(0);
+        }
+
+        function updateLevelProgress(delta) {
+            const targetXP = xpRequirements[currentLevel] || (currentLevel * 150);
+            document.getElementById("xp-text").innerText = `${currentXP} / ${targetXP} XP`;
+            document.getElementById("xp-bar").style.width = `${Math.min(100, (currentXP / targetXP) * 100)}%`;
+        }
+
+        function updateHierarchicalTreeUI() {
+            document.getElementById("tree-status-tag").innerText = `Level ${currentLevel} Active`;
+
+            const setNodeState = (elementId, isUnlocked, labelText) => {
+                const el = document.getElementById(elementId);
+                if (!el) return;
+                if (isUnlocked) {
+                    el.className = "tree-node-unlocked bg-[#1e2a1c] border text-emerald-300 px-2 py-0.5 rounded text-[11px] transition-all";
+                    el.innerText = labelText.replace(/ \(Lvl \d+\)/, "");
+                } else {
+                    el.className = "tree-node-locked bg-[#1e2a1c] border text-emerald-300 px-2 py-0.5 rounded text-[11px] transition-all";
+                    el.innerText = labelText;
+                }
+            };
+
+            setNodeState("tree-item-rose", currentLevel >= 2, "🌹 Rose (Lvl 2)");
+            setNodeState("tree-item-shrub", currentLevel >= 3, "🌿 Shrub (Lvl 3)");
+            setNodeState("tree-item-wildflower", currentLevel >= 3, "🌸 Wildflower (Lvl 3)");
+            setNodeState("tree-item-lavender", currentLevel >= 4, "🪻 Lavender (Lvl 4)");
+            setNodeState("tree-item-orchid", currentLevel >= 5, "🪷 Orchid (Lvl 5)");
+            setNodeState("tree-item-wheat", currentLevel >= 6, "🌾 Wheat (Lvl 6)");
+            setNodeState("tree-item-sunflower", currentLevel >= 7, "🌻 Sunflower (Lvl 7)");
+            setNodeState("tree-item-lotus", currentLevel >= 8, "🪷 Lotus (Lvl 8)");
+            setNodeState("tree-item-lily", currentLevel >= 9, "🌺 Celestial Lily (Lvl 9)");
+            setNodeState("tree-item-treeoflife", currentLevel >= 10, "🌳 Tree of Life (Lvl 10)");
+
+            const apexNode = document.getElementById("tree-node-apex");
+            if (apexNode) {
+                apexNode.className = currentLevel >= 7 ? 
+                    "tree-node-unlocked bg-emerald-950 border text-amber-200 px-3 py-1 rounded-md font-semibold text-center transition-all" : 
+                    "tree-node-locked bg-emerald-950 border text-amber-200 px-3 py-1 rounded-md font-semibold text-center transition-all";
+            }
+
+            const cosmicNode = document.getElementById("tree-node-cosmic");
+            if (cosmicNode) {
+                cosmicNode.className = currentLevel >= 9 ? 
+                    "tree-node-unlocked bg-emerald-950 border text-purple-300 px-3 py-1 rounded-md font-semibold text-center transition-all mt-1" : 
+                    "tree-node-locked bg-emerald-950 border text-purple-300 px-3 py-1 rounded-md font-semibold text-center transition-all mt-1";
+            }
+        }
+
+        function updateClimateQueue(events) {
+            const container = document.getElementById("climate-queue");
+            container.innerHTML = "";
+            if (!events || !events.length) return;
+            events.forEach(event => {
+                const div = document.createElement("div");
+                div.className = "p-3 bg-emerald-950/40 border border-emerald-900 rounded-xl text-xs";
+                const kind = typeof event === "string" ? event : (event.kind || "Weather Event");
+                const icon = typeof event === "string" ? "🌧️" : (event.icon || "🌧️");
+                div.innerHTML = `
+                    <div class="font-bold text-amber-300">${icon} ${kind}</div>
+                    <div class="text-emerald-300/80">Scheduled weather event</div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function addPlantToGrid(pos, name) {
+            const cropMeta = plantMasterRegistry[name] || plantMasterRegistry["Native Flower"];
+            const emoji = cropMeta ? cropMeta.emoji : "🌱";
+            gardenGridState[pos] = `${name}|${emoji}|seed|0|0|0`;
+            update3DCropsMesh(pos, name, "seed", false);
+        }
+
+        function removePlantFromGrid(pos) {
+            gardenGridState[pos] = null;
+            update3DCropsMesh(pos, null, null, false);
+        }
+
+        function updateDay(day) {
+            currentDay = day;
+            document.getElementById("day-counter").innerText = day;
+        }
+
+        function onTileClick(pos) {
+            if (!isGameUnlocked) {
+                initAudioContext();
+                playTone(200, 'sawtooth', 0.2, 0.05);
+                showToast("🔒 Farm plots are locked! Click 'Run All Topics' in Code Lab first.");
+                return;
+            }
+
+            initAudioContext();
+
+            const row = Math.floor(pos / 5), col = pos % 5;
+            const selectedCrop = document.getElementById("crop-selector").value || "Native Flower";
+            const cropMeta = plantMasterRegistry[selectedCrop] || plantMasterRegistry["Native Flower"];
+            const currentItem = gardenGridState[pos];
+
+            if (!currentItem) {
+                if (cropMeta.minLevel > currentLevel) {
+                    playTone(200, 'sawtooth', 0.2, 0.05);
+                    showToast(`🔒 ${selectedCrop} requires Farm Level ${cropMeta.minLevel}!`);
+                    return;
+                }
+                if (resourcesState.coins < cropMeta.cost) {
+                    playTone(220, 'sawtooth', 0.2, 0.05);
+                    pushAction(`Not enough Gold Coins to plant ${selectedCrop} (${cropMeta.cost} gold)`);
+                    return;
+                }
+                if (resourcesState.seeds < 1) {
+                    playTone(220, 'sawtooth', 0.2, 0.05);
+                    pushAction(`Not enough seeds in bag to plant ${selectedCrop}`);
+                    return;
+                }
+                
+                playTone(440, 'sine', 0.15, 0.08);
+
+                const emoji = cropMeta.emoji || "🌱";
+                gardenGridState[pos] = `${selectedCrop}|${emoji}|seed|0|0|0`;
+                resourcesState.coins -= cropMeta.cost;
+                resourcesState.seeds -= 1;
+                update3DCropsMesh(pos, selectedCrop, "seed", false);
+                pushAction(`Planted ${selectedCrop} at plot [${row}][${col}].`);
+            } else {
+                const parts = currentItem.split("|");
+                const cropName = parts[0] || "Native Flower";
+                const stage = parts[2] || "seed";
+                const days = parseInt(parts[3] || "0");
+                const dry = parts[4] === "1";
+                const existingMeta = plantMasterRegistry[cropName] || plantMasterRegistry["Native Flower"];
+
+                if (stage === "bloom") {
+                    playTone(880, 'triangle', 0.3, 0.1);
+
+                    gardenGridState[pos] = null;
+                    resourcesState.coins += existingMeta.coins;
+                    resourcesState.hope = Math.min(100, resourcesState.hope + existingMeta.hope);
+                    
+                    update3DCropsMesh(pos, null, null, false);
+                    addXP(existingMeta.xp);
+                    pushAction(`Harvested ${cropName}! (+${existingMeta.coins} Gold, +${existingMeta.xp} XP, +${existingMeta.hope} Town Hope)`);
+                } else if (stage === "rotten") {
+                    playTone(200, 'sawtooth', 0.2, 0.05);
+                    gardenGridState[pos] = null;
+                    update3DCropsMesh(pos, null, null, false);
+                    pushAction(`Cleared rotted ${cropName} from plot. No reward earned.`);
+                } else if (dry) {
+                    if (resourcesState.water < 10) {
+                        playTone(220, 'sawtooth', 0.2, 0.05);
+                        pushAction(`Not enough water in well to water ${cropName}`);
+                        return;
+                    }
+                    playTone(587.33, 'sine', 0.2, 0.08);
+
+                    resourcesState.water -= 10;
+                    gardenGridState[pos] = `${cropName}|${existingMeta.emoji || "🌱"}|${stage}|${days}|0|${parts[5] || "0"}`;
+                    update3DCropsMesh(pos, cropName, stage, false);
+                    pushAction(`Watered thirsty soil plot for ${cropName}`);
+                } else {
+                    playTone(349.23, 'sine', 0.1, 0.04);
+                    pushAction(`${cropName} is growing safely (${stage}, Day ${days}/10). Advance season day to speed up growth!`);
+                }
+            }
+
+            updateResources(resourcesState);
+        }
+
+        function updateResources(water, seeds, energy, hope, coins) {
+            if (typeof water === "object" && water !== null) {
+                const args = water;
+                water = args.water !== undefined ? args.water : 0;
+                seeds = args.seeds !== undefined ? args.seeds : 0;
+                energy = args.energy !== undefined ? args.energy : 0;
+                hope = args.hope !== undefined ? args.hope : 0;
+                coins = args.coins !== undefined ? args.coins : 0;
+            }
+
+            resourcesState = {water, seeds, energy, hope, coins};
+
+            const waterMax = 200, seedsMax = 100, energyMax = 120, hopeMax = 100;
+            document.getElementById("water-text").innerText = `${water} / ${waterMax} L`;
+            document.getElementById("water-bar").style.width = `${Math.min(100, (water / waterMax) * 100)}%`;
+
+            document.getElementById("seeds-text").innerText = `${seeds} / ${seedsMax}`;
+            document.getElementById("seeds-bar").style.width = `${Math.min(100, (seeds / seedsMax) * 100)}%`;
+
+            document.getElementById("energy-text").innerText = `${energy} / ${energyMax} Wh`;
+            document.getElementById("energy-bar").style.width = `${Math.min(100, (energy / energyMax) * 100)}%`;
+
+            document.getElementById("hope-text").innerText = `${hope} / ${hopeMax}`;
+            document.getElementById("hope-bar").style.width = `${Math.min(100, (hope / hopeMax) * 100)}%`;
+
+            document.getElementById("coins-text").innerText = `${coins} Gold`;
+
+            const healthPct = Math.min(100, Math.floor((resourcesState.hope + currentLevel * 10) / 2));
+            document.getElementById("stewardship-counter").innerText = `${healthPct}%`;
+        }
+
+        function pushAction(action) {
+            displayActionHistory.push(action);
+            if (displayActionHistory.length > 8) displayActionHistory.shift();
+            renderActionStack();
+        }
+
+        function renderActionStack() {
+            const container = document.getElementById("action-stack");
+            container.innerHTML = "";
+            [...displayActionHistory].reverse().forEach(act => {
+                const div = document.createElement("div");
+                div.className = "bg-emerald-950/60 border-l-2 border-emerald-500 px-3 py-2 rounded text-xs text-emerald-100";
+                div.textContent = `→ ${act}`;
+                container.appendChild(div);
+            });
+        }
+
+        window.triggerUndo = function() {
+            if (!isGameUnlocked) return;
+            initAudioContext();
+            playTone(300, 'sine', 0.15, 0.05);
+
+            for (let i = gardenGridState.length - 1; i >= 0; i--) {
+                if (gardenGridState[i] !== null) {
+                    gardenGridState[i] = null;
+                    resourcesState.coins += 10;
+                    resourcesState.seeds += 1;
+                    update3DCropsMesh(i, null, null, false);
+                    pushAction(`Undid action on plot #${i}`);
+                    updateResources(resourcesState);
+                    return;
+                }
+            }
+            pushAction("Nothing to undo");
+        };
+
+        window.triggerAdvanceDay = function() {
+            if (!isGameUnlocked) return;
+            initAudioContext();
+            playTone(523.25, 'sine', 0.2, 0.08);
+
+            currentDay++;
+            updateDay(currentDay);
+            resourcesState.solar = Math.min(120, resourcesState.solar + 20);
+
+            const randomWeather = weatherList[Math.floor(Math.random() * weatherList.length)];
+            isCurrentlyRaining = randomWeather.rain;
+
+            if (isCurrentlyRaining) {
+                resourcesState.water = Math.min(200, resourcesState.water + 30);
+            }
+
+            let maturedCount = 0;
+            for (let i = 0; i < gardenGridState.length; i++) {
+                const item = gardenGridState[i];
+                if (item) {
+                    const parts = item.split("|");
+                    const cropName = parts[0] || "Native Flower";
+                    const existingMeta = plantMasterRegistry[cropName] || plantMasterRegistry["Native Flower"];
+                    const emoji = existingMeta.emoji || "🌱";
+                    let stage = parts[2] || "seed";
+                    let days = parseInt(parts[3] || "0") + 1;
+                    let dry = parts[4] === "1";
+                    let bloomDays = parseInt(parts[5] || "0");
+
+                    if (stage === "bloom") {
+                        bloomDays++;
+                        if (bloomDays >= 3) {
+                            stage = "rotten";
+                            pushAction(`🥀 ${cropName} at plot #${i + 1} rotted from being left unharvested!`);
+                        }
+                        gardenGridState[i] = `${cropName}|${emoji}|${stage}|${days}|${dry ? "1" : "0"}|${bloomDays}`;
+                        update3DCropsMesh(i, cropName, stage, dry);
+                    } else if (stage !== "rotten") {
+                        if (days >= 10) {
+                            stage = "bloom";
+                            maturedCount++;
+                            dry = false;
+                            bloomDays = 0;
+                        } else if (days >= 4) {
+                            stage = "sprout";
+                        }
+                        
+                        if (!isCurrentlyRaining && Math.random() < 0.2) {
+                            dry = true;
+                        } else if (isCurrentlyRaining) {
+                            dry = false;
+                        }
+
+                        gardenGridState[i] = `${cropName}|${emoji}|${stage}|${days}|${dry ? "1" : "0"}|${bloomDays}`;
+                        update3DCropsMesh(i, cropName, stage, dry);
+                    }
+                }
+            }
+
+            pushAction(`Day ${currentDay}: Advanced season day! Weather: ${randomWeather.icon} ${randomWeather.kind}. ${maturedCount > 0 ? `${maturedCount} plant(s) fully bloomed!` : ""}`);
+            
+            updateResources(resourcesState);
+        };
+
+        function showToast(msg) {
+            const toast = document.createElement("div");
+            toast.className = "fixed bottom-6 right-6 bg-emerald-900 border border-emerald-400 text-white px-5 py-3 rounded-2xl shadow-2xl z-50 text-sm";
+            toast.textContent = msg;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 2500);
+        }
+
+        window.switchTab = function(tab) {
+            initAudioContext();
+            playTone(400, 'sine', 0.08, 0.03);
+            document.getElementById("view-game").classList.toggle("hidden", tab !== "game");
+            document.getElementById("view-code").classList.toggle("hidden", tab !== "code");
+            document.getElementById("tab-game").classList.toggle("bg-[#283623]", tab === "game");
+            document.getElementById("tab-game").classList.toggle("text-emerald-100", tab === "game");
+            document.getElementById("tab-code").classList.toggle("bg-[#283623]", tab === "code");
+            document.getElementById("tab-code").classList.toggle("text-emerald-100", tab === "code");
+            if (tab === "game") onWindowResize();
+        };
+
+        window.onload = () => {
+            document.getElementById("version-badge").textContent = "v" + APP_VERSION;
+            if (window.lucide) lucide.createIcons();
+            renderActionStack();
+            initParticles("loading-particle-container");
+            initParticles("particle-container");
+            initParticles("menu-particle-container");
+
+            startLoadingProgressSequence();
+
+            loadTopic();
+            updateResources(0, 0, 0, 0, 0);
+            switchTab("game");
+
+            init3DEngine();
+
+            const consoleEl = document.getElementById("output-console");
+            if (consoleEl) {
+                consoleEl.innerHTML = `<span class="text-emerald-400">Code engine ready! Click "Run All Topics" to unlock the 3D plot.</span><br>`;
+            }
+
+            setTimeout(() => {
+                onWindowResize();
+            }, 100);
+        };
+    </script>
+</body>
+</html>
