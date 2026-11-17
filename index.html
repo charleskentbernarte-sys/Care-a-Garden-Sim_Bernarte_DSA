@@ -11,7 +11,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Care a Garden v0.5.4 - Cozy Farming Adventure</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
     <script src="https://cdn.jsdelivr.net/pyodide/v0.26.1/full/pyodide.js" onerror="window.pyodideCdnFailed=true;"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
@@ -407,7 +407,7 @@
         <section id="resources-section" class="lg:col-span-3 glass-panel rounded-2xl p-4 transition-all opacity-50 pointer-events-none">
             <h2 class="text-base font-bold text-emerald-200 border-b border-[#43533c]/30 pb-2 mb-4 flex items-center justify-between">
                 <span class="flex items-center gap-2">
-                    <i data-lucide="barn" class="w-4 h-4 text-emerald-400"></i> Barn Storage
+                    <i data-lucide="warehouse" class="w-4 h-4 text-emerald-400"></i> Barn Storage
                 </span>
                 <span id="resource-lock-badge" class="text-[10px] font-bold bg-amber-950/80 text-amber-400 border border-amber-600/60 px-2 py-0.5 rounded">LOCKED</span>
             </h2>
@@ -735,7 +735,7 @@
     </main>
 
     <script>
-        const APP_VERSION = "0.5.4";
+              const APP_VERSION = "0.5.4";
 
         let pyodideInstance = null;
         let isGameUnlocked = false;
@@ -771,12 +771,14 @@
 
         // THREE.JS 3D ENGINE PIPELINE
         let scene, camera, renderer, tileGroup, cropMeshes = {};
-        let raycaster = new THREE.Raycaster();
-        let mouse = new THREE.Vector2();
+        let raycaster = null;
+        let mouse = null;
         let cameraAngle = 0;
         let cameraDistance = 14;
 
         function init3DEngine() {
+            if (typeof THREE === "undefined") { const c = document.getElementById("canvas-container"); if (c) c.insertAdjacentHTML("beforeend", '<div class="absolute inset-0 flex items-center justify-center text-xs text-red-300 p-6 text-center">3D engine could not load. Check your internet connection and reload.</div>'); return; }
+            raycaster = new THREE.Raycaster(); mouse = new THREE.Vector2();
             const container = document.getElementById("canvas-container");
             if (!container) return;
 
@@ -789,6 +791,7 @@
 
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
             renderer.shadowMap.enabled = true;
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             container.appendChild(renderer.domElement);
@@ -825,7 +828,10 @@
 
             container.addEventListener('mousemove', on3DMouseMove);
             container.addEventListener('click', on3DClick);
-            container.addEventListener('wheel', on3DWheel, { passive: true });
+            container.addEventListener('wheel', on3DWheel, { passive: false });
+            container.addEventListener('mousedown', e => { dragStartX = e.clientX; dragMoved = false; });
+            window.addEventListener('mouseup', () => { dragStartX = null; });
+            container.addEventListener('mousemove', e => { if (dragStartX !== null && e.buttons === 1) { const dx = e.clientX - dragStartX; if (Math.abs(dx) > 3) { dragMoved = true; rotate3DCamera(dx * 0.01); dragStartX = e.clientX; } } });
 
             window.addEventListener('resize', onWindowResize);
             animate3D();
@@ -855,8 +861,9 @@
             updateCameraPosition();
         };
 
+        let dragStartX = null, dragMoved = false;
         function on3DWheel(e) {
-            zoom3DCamera(e.deltaY * 0.01);
+            e.preventDefault(); zoom3DCamera(e.deltaY * 0.01);
         }
 
         function on3DMouseMove(e) {
@@ -883,6 +890,7 @@
         }
 
         function on3DClick(e) {
+            if (dragMoved) { dragMoved = false; return; }
             const container = document.getElementById("canvas-container");
             const rect = container.getBoundingClientRect();
             mouse.x = ((e.clientX - rect.left) / container.clientWidth) * 2 - 1;
@@ -898,8 +906,9 @@
         }
 
         function update3DCropsMesh(idx, cropName, stage, dry) {
+            if (!scene) return;
             if (cropMeshes[idx]) {
-                scene.remove(cropMeshes[idx]);
+                scene.remove(cropMeshes[idx]); cropMeshes[idx].geometry.dispose(); cropMeshes[idx].material.dispose();
                 delete cropMeshes[idx];
             }
 
@@ -1048,9 +1057,16 @@
             }
         };
 
+                function getChapter(l) {
+            return storyChapters[l] || { tag: `LEVEL ${l} • WHISPERING VALLEY FLOURISHES`, ascii: storyChapters[3].ascii, steps: [
+                `Level ${l} complete! Your farm grows stronger with every harvest.`,
+                "The villagers gather at your gate, amazed at how far the Valley has come.",
+                "Barnaby smiles: 'The land remembers who cares for it. Keep going, farmer!'" ] };
+        }
+
         function triggerStoryCutsceneFirst(level = 1, fromLevelComplete = false) {
             initAudioContext();
-            currentCutsceneLevel = storyChapters[level] ? level : 1;
+            currentCutsceneLevel = level;
             currentCutsceneIndex = 0;
 
             const overlay = document.getElementById("cutscene-overlay");
@@ -1060,7 +1076,7 @@
         }
 
         function renderCutsceneStep() {
-            const chapter = storyChapters[currentCutsceneLevel] || storyChapters[1];
+            const chapter = getChapter(currentCutsceneLevel);
             document.getElementById("cutscene-chapter-tag").innerText = chapter.tag;
             document.getElementById("ascii-canvas").innerText = chapter.ascii;
 
@@ -1075,7 +1091,7 @@
             initAudioContext();
             playTone(480, 'sine', 0.1, 0.05);
 
-            const chapter = storyChapters[currentCutsceneLevel] || storyChapters[1];
+            const chapter = getChapter(currentCutsceneLevel);
             currentCutsceneIndex++;
 
             if (currentCutsceneIndex < chapter.steps.length) {
@@ -1190,7 +1206,8 @@
             const val = parseInt(valInput.value);
             if (isNaN(val)) return;
 
-            const plotPos = val % 25;
+            const plotPos = ((val % 25) + 25) % 25;
+            if (findBSTNodeObj(bstRoot, val)) { document.getElementById("bst-search-feedback").innerText = `⚠ Node ${val} already exists in the BST.`; return; }
             const newNode = new BSTNode(val, plotPos);
             if (!bstRoot) bstRoot = newNode;
             else insertNode(bstRoot, newNode);
@@ -1544,7 +1561,7 @@
             isAudioMuted = !isAudioMuted;
             
             const btnText = document.getElementById("bgm-status-text");
-            const icon = document.getElementById("bgm-icon");
+            const oldIcon = document.getElementById("bgm-icon"); const icon = document.createElement("i"); icon.id = "bgm-icon"; icon.setAttribute("data-lucide", isAudioMuted ? "volume-x" : "volume-2"); icon.className = "w-4 h-4 " + (isAudioMuted ? "text-red-400" : "text-emerald-400"); if (oldIcon) oldIcon.replaceWith(icon);
             
             if (isAudioMuted) {
                 if (btnText) btnText.innerText = "BGM Muted";
@@ -1623,7 +1640,7 @@
             pushAction("Prerequisite completed: 3D Sanctuary plot UNLOCKED!");
         }
 
-        // FULL 12 DSA PYTHON CODE TOPICS RESTORED IN FULL DEFINITION
+                // FULL 12 DSA PYTHON CODE TOPICS RESTORED IN FULL DEFINITION
         const topicTemplates = {
             1: {
                 title: "Topic 1: Plant OOP & Action History Stack",
@@ -1950,9 +1967,9 @@ print(f"Topic 12: Seed Bank Vault online. Inventory -> {vault.vault}")
 
         let pyodideLoadPromise = null;
 
-        function initPyodideEngine(maxWaitMs = 7000) {
+        function initPyodideEngine(maxWaitMs = 45000) {
             if (pyodideInstance) return Promise.resolve(true);
-            if (window.pyodideCdnFailed || typeof loadPyodide === "undefined" || location.protocol === "file:") return Promise.resolve(false);
+            if (window.pyodideCdnFailed || typeof loadPyodide === "undefined") return Promise.resolve(false);
 
             if (!pyodideLoadPromise) {
                 pyodideLoadPromise = (async () => {
@@ -1968,51 +1985,68 @@ print(f"Topic 12: Seed Bank Vault online. Inventory -> {vault.vault}")
             return Promise.race([pyodideLoadPromise, timeout]);
         }
 
+        const escHtml = t => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        function consolePrint(t, cls) {
+            const el = document.getElementById("output-console");
+            el.innerHTML += `<span class="${cls || "text-emerald-200"}">${escHtml(t)}</span><br>`;
+            el.scrollTop = el.scrollHeight;
+        }
+        let pyOutBound = false;
+        function bindPyOutput() {
+            if (pyodideInstance && !pyOutBound) {
+                pyodideInstance.setStdout({ batched: m => consolePrint(m) });
+                pyodideInstance.setStderr({ batched: m => consolePrint(m, "text-red-400") });
+                pyOutBound = true;
+            }
+        }
+
         window.runPythonCode = async function() {
             initAudioContext();
             playTone(523.25, 'triangle', 0.2, 0.08);
-
-            const consoleEl = document.getElementById("output-console");
-            consoleEl.innerHTML = `<span class="text-amber-400">Running selected topic...</span><br>`;
+            const el = document.getElementById("output-console");
+            el.innerHTML = `<span class="text-amber-400">Running selected topic...</span><br>`;
             const key = document.getElementById("topic-selector").value;
-
-            const isPyReady = await initPyodideEngine();
-            if (isPyReady && pyodideInstance) {
+            const ready = await initPyodideEngine(45000);
+            if (ready && pyodideInstance) {
+                bindPyOutput();
                 try {
                     await pyodideInstance.runPythonAsync(document.getElementById("code-editor").value);
-                    consoleEl.innerHTML += `<span class="text-emerald-400">Topic executed in Python engine!</span><br>`;
+                    consolePrint("Topic executed in Python engine!", "text-emerald-400");
                 } catch (err) {
-                    consoleEl.innerHTML += `<span class="text-red-400">Error: ${err.message}</span><br>`;
+                    playTone(200, 'sawtooth', 0.2, 0.05);
+                    consolePrint("Error: " + err.message, "text-red-400");
                 }
             } else {
-                consoleEl.innerHTML += `<span class="text-emerald-400">${jsSimOutputs[key] || "Topic executed."}</span><br>`;
+                consolePrint(jsSimOutputs[key] || "Topic executed.", "text-emerald-400");
             }
-
-            unlockGameFunctionality();
+            if (!isGameUnlocked) consolePrint("Tip: run all 12 topics to unlock the 3D farm.", "text-amber-300");
         };
 
         window.runAllTopicsSequentially = async function() {
             initAudioContext();
             playTone(659.25, 'triangle', 0.25, 0.1);
-
             switchTab('code');
-            const consoleEl = document.getElementById("output-console");
-            consoleEl.innerHTML = `<span class="text-amber-400">Executing all 12 topics...</span><br>`;
-            
-            const isPyReady = await initPyodideEngine();
+            document.getElementById("output-console").innerHTML = `<span class="text-amber-400">Executing all 12 topics...</span><br>`;
+            const ready = await initPyodideEngine(45000);
+            if (ready) bindPyOutput();
             const keys = Object.keys(topicTemplates);
-
-            for (let i = 0; i < keys.length; i++) {
-                const key = keys[i];
-                consoleEl.innerHTML += `<span class="text-emerald-400 font-bold">▶ Running Topic ${key}: ${topicTemplates[key].title}</span><br>`;
-                if (isPyReady && pyodideInstance) {
-                    try { await pyodideInstance.runPythonAsync(topicTemplates[key].code); } catch (e) {}
+            let failed = 0;
+            for (const key of keys) {
+                consolePrint(`▶ Running Topic ${key}: ${topicTemplates[key].title}`, "text-emerald-400 font-bold");
+                if (ready && pyodideInstance) {
+                    try { await pyodideInstance.runPythonAsync(topicTemplates[key].code); }
+                    catch (e) { failed++; consolePrint(`Error in Topic ${key}: ${e.message}`, "text-red-400"); }
                 } else {
-                    consoleEl.innerHTML += `<span class="text-emerald-300">${jsSimOutputs[key]}</span><br>`;
+                    consolePrint(jsSimOutputs[key], "text-emerald-300");
                 }
             }
-
-            consoleEl.innerHTML += `<span class="text-emerald-300 font-bold">✓ All 12 topics verified! 3D Farm Plot Unlocked.</span><br>`;
+            if (failed) {
+                playTone(200, 'sawtooth', 0.25, 0.06);
+                consolePrint(`✗ ${failed} topic(s) failed. The farm stays locked until all 12 pass.`, "text-red-400");
+                showToast("Some topics failed. See the console.");
+                return;
+            }
+            consolePrint("✓ All 12 topics verified! 3D Farm Plot Unlocked.", "text-emerald-300 font-bold");
             unlockGameFunctionality();
             showToast("All topics executed! 3D Farm plot unlocked.");
         };
@@ -2217,24 +2251,6 @@ print(f"Topic 12: Seed Bank Vault online. Inventory -> {vault.vault}")
             });
         }
 
-        window.triggerUndo = function() {
-            if (!isGameUnlocked) return;
-            initAudioContext();
-            playTone(300, 'sine', 0.15, 0.05);
-
-            for (let i = gardenGridState.length - 1; i >= 0; i--) {
-                if (gardenGridState[i] !== null) {
-                    gardenGridState[i] = null;
-                    resourcesState.coins += 10;
-                    resourcesState.seeds += 1;
-                    update3DCropsMesh(i, null, null, false);
-                    pushAction(`Undid action on plot #${i}`);
-                    updateResources(resourcesState);
-                    return;
-                }
-            }
-        };
-
         window.triggerAdvanceDay = function() {
             if (!isGameUnlocked) return;
             initAudioContext();
@@ -2278,14 +2294,6 @@ print(f"Topic 12: Seed Bank Vault online. Inventory -> {vault.vault}")
             updateResources(resourcesState);
         };
 
-        window.triggerPhotosynthesis = function() {
-            if (!isGameUnlocked || resourcesState.energy < 20) return;
-            initAudioContext();
-            resourcesState.energy -= 20;
-            updateResources(resourcesState);
-            showToast("☀️ Photosynthesis active!");
-        };
-
         window.runSolarWellPump = function() {
             if (!isGameUnlocked || resourcesState.energy < 15) return;
             initAudioContext();
@@ -2313,6 +2321,85 @@ print(f"Topic 12: Seed Bank Vault online. Inventory -> {vault.vault}")
             if (tab === "bst") renderBSTVisualizer();
         };
 
+        // ---- v0.5.4 fixes: missing buttons, Photosynthesis, real Undo ----
+        const undoStack = [];
+        const gateMsg = () => showToast("🔒 Run all 12 Code Topics first!");
+
+        window.triggerRainEvent = function() {
+            if (!isGameUnlocked) return gateMsg();
+            initAudioContext(); playTone(500, 'sine', 0.25, 0.06);
+            isCurrentlyRaining = true;
+            resourcesState.water = Math.min(200, resourcesState.water + 30);
+            gardenGridState.forEach((it, i) => { if (!it) return; const p = it.split("|"); p[4] = "0"; gardenGridState[i] = p.join("|"); });
+            pushAction("🌧️ Rain fell: +30L water, all plots watered");
+            updateResources(resourcesState);
+        };
+
+        window.autoWaterAllPlots = function() {
+            if (!isGameUnlocked) return gateMsg();
+            initAudioContext();
+            let n = 0;
+            gardenGridState.forEach((it, i) => {
+                if (!it) return;
+                const p = it.split("|");
+                if (p[4] === "1" && p[2] !== "rotten" && resourcesState.water >= 10) {
+                    resourcesState.water -= 10; p[4] = "0"; gardenGridState[i] = p.join("|"); n++;
+                }
+            });
+            if (!n) { showToast("No dry plots need water."); return; }
+            playTone(587.33, 'sine', 0.2, 0.08);
+            pushAction(`Watered ${n} dry plot(s) (-${n * 10}L)`);
+            updateResources(resourcesState);
+        };
+
+        window.triggerPhotosynthesis = function() {
+            if (!isGameUnlocked) return gateMsg();
+            if (resourcesState.energy < 20) { showToast("Not enough Sunlight Energy (need 20 Wh)."); return; }
+            initAudioContext();
+            resourcesState.energy -= 20;
+            gardenGridState.forEach((it, i) => {
+                if (!it) return;
+                const p = it.split("|");
+                if (p[2] === "bloom" || p[2] === "rotten") return;
+                const d = parseInt(p[3] || "0") + 1, st = d >= 10 ? "bloom" : d >= 4 ? "sprout" : "seed";
+                gardenGridState[i] = [p[0], p[1], st, d, p[4], p[5]].join("|");
+                update3DCropsMesh(i, p[0], st, p[4] === "1");
+            });
+            pushAction("☀️ Photosynthesis: every growing crop gained +1 growth day");
+            updateResources(resourcesState);
+            showToast("☀️ Photosynthesis active!");
+        };
+
+        const undoSnap = () => JSON.stringify({ g: gardenGridState, r: resourcesState, d: currentDay, xp: currentXP, l: currentLevel, q: currentQuestHarvests });
+        ["onTileClick", "triggerAdvanceDay", "runSolarWellPump", "triggerPhotosynthesis", "triggerRainEvent", "autoWaterAllPlots"].forEach(name => {
+            const orig = window[name];
+            window[name] = function(...args) {
+                const before = undoSnap();
+                const out = orig.apply(this, args);
+                if (isGameUnlocked && undoSnap() !== before) { undoStack.push(before); if (undoStack.length > 30) undoStack.shift(); }
+                return out;
+            };
+        });
+
+        window.triggerUndo = function() {
+            if (!isGameUnlocked) return;
+            initAudioContext();
+            const snap = undoStack.pop();
+            if (!snap) { showToast("Nothing to undo."); return; }
+            const o = JSON.parse(snap);
+            gardenGridState = o.g; currentDay = o.d; currentXP = o.xp; currentLevel = o.l; currentQuestHarvests = o.q;
+            document.getElementById("day-counter").innerText = currentDay;
+            document.getElementById("level-counter").innerText = currentLevel;
+            document.getElementById("quest-progress-text").innerText = `Progress: ${currentQuestHarvests} / ${questTarget}`;
+            for (let i = 0; i < 25; i++) {
+                const it = gardenGridState[i];
+                if (it) { const p = it.split("|"); update3DCropsMesh(i, p[0], p[2], p[4] === "1"); } else update3DCropsMesh(i, null, null, false);
+            }
+            refreshCropSelectorOptions(); updateHierarchicalTreeUI(); updateResources(o.r); updateLevelProgress(0);
+            pushAction("Undid last action");
+            playTone(300, 'sine', 0.15, 0.05);
+        };
+
         window.onload = () => {
             document.getElementById("version-badge").textContent = "v" + APP_VERSION;
             if (window.lucide) lucide.createIcons();
@@ -2328,7 +2415,7 @@ print(f"Topic 12: Seed Bank Vault online. Inventory -> {vault.vault}")
             updateResources(0, 0, 0, 0, 0);
             switchTab("game");
 
-            init3DEngine();
+            try { init3DEngine(); } catch (e) { console.error('3D init failed', e); }
             setTimeout(() => initPyodideEngine(60000), 300);
 
             setTimeout(() => { onWindowResize(); }, 100);
