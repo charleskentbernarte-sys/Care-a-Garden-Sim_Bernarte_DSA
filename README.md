@@ -19,7 +19,7 @@
 
 ## 📝 Changelog
 
-### [0.5.4] - 2026-11-04
+### [0.5.5] - 2026-11-04
 * **Dynamic BST Search Visualizer & Plot Mapping**: Implemented a graphical canvas renderer for Topic 5 (Binary Search Tree). Inserting and searching BST node values recalculates node coordinates, draws SVG connecting lines, and highlights corresponding 3D soil plots via $val \pmod{25}$ mapping.
 * **Advance Season Day Engine Fix**: Fixed DOM reference handling inside `triggerAdvanceDay()` to accurately progress day counters, apply rain watering effects, age growing crops, and decay unharvested bloomed plants into a rotted state after 3 days.
 * **ASCII Story Cutscene Engine**: Updated cutscenes ("Old Barnaby • The Valley Storyteller") to focus on interactive visual ASCII graphics and step-by-step narrative text progression across level-up transitions.
